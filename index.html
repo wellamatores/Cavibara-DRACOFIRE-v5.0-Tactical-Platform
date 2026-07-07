@@ -85,13 +85,14 @@
         }
 
         /* Контейнеры */
-        #cesiumContainer, #leafletContainer, #threeContainer {
+        #cesiumContainer, #leafletContainer, #threeContainer, #terrainContainer {
             position:absolute; top:0; left:0;
             width:100%; height:100%; z-index:0;
         }
         #cesiumContainer { display:none; }
         #leafletContainer { display:none; }
         #threeContainer { display:block; }
+        #terrainContainer { display:none; z-index:1; }
 
         /* ===== TOP BAR ===== */
         .top-bar {
@@ -691,6 +692,41 @@
             .offline-panel { right:3px; bottom:50px; min-width:120px; }
             .nato-panel { right:3px; top:100px; min-width:120px; }
         }
+
+        /* Terrain Sim info overlay */
+        .terrain-info-overlay {
+            position:absolute; bottom:60px; left:50%; transform:translateX(-50%);
+            z-index:1000;
+            background:rgba(0,0,0,0.75);
+            backdrop-filter:blur(12px);
+            border:1px solid rgba(255,107,53,0.3);
+            border-radius:12px;
+            padding:8px 20px;
+            font-size:11px;
+            color:#ffaa66;
+            font-family:monospace;
+            pointer-events:none;
+            text-align:center;
+            box-shadow:0 0 30px rgba(255,68,0,0.15);
+        }
+        .terrain-close-btn {
+            position:absolute; top:60px; right:10px;
+            z-index:1000;
+            background:rgba(255,68,0,0.85);
+            border:none;
+            border-radius:8px;
+            color:#fff;
+            padding:8px 16px;
+            font-size:13px;
+            font-weight:bold;
+            cursor:pointer;
+            box-shadow:0 0 30px rgba(255,68,0,0.3);
+            transition:all 0.3s;
+        }
+        .terrain-close-btn:hover {
+            background:#ff4444;
+            transform:scale(1.05);
+        }
     </style>
 </head>
 <body>
@@ -710,7 +746,7 @@
             <button class="view-btn active" data-view="3d" onclick="switchView('3d')">3D</button>
             <button class="view-btn" data-view="2d" onclick="switchView('2d')">2D</button>
             <button class="view-btn" data-view="globe" onclick="switchView('globe')">Globe</button>
-            <button class="view-btn" data-view="terrain" onclick="switchView('terrain')">Terrain</button>
+            <button class="view-btn" data-view="terrain" onclick="switchView('terrain')">🌍 Terrain</button>
         </div>
         
         <div class="tier-selector" id="tierSelector">
@@ -1065,6 +1101,7 @@
     <div id="cesiumContainer"></div>
     <div id="leafletContainer"></div>
     <div id="threeContainer"></div>
+    <div id="terrainContainer"></div>
 
     <!-- ===== NOTIFICATIONS ===== -->
     <div class="notification-container" id="notificationContainer"></div>
@@ -1088,7 +1125,7 @@
      * 5. Line of Sight (LOS) — basic visibility analysis
      * 6. Zone Analysis — visibility/engagement zones
      * 7. Full Project Export/Import — all data in one archive
-     * 8. PWA Manifest + Service Worker (basic)
+     * 8. FULL 3D TERRAIN SIM — realistic terrain with 12 tactical objects
      * 
      * IMPROVEMENTS:
      * - initTacticalDrawing() called in init()
@@ -1147,6 +1184,10 @@
         // Offline
         offlineMaxZoom: 15,
         offlineMinZoom: 5,
+        // Terrain
+        terrainWidth: 180,
+        terrainDepth: 180,
+        terrainSegments: 320,
     };
 
     // ================================================================
@@ -1216,6 +1257,8 @@
         // LOS
         losPoints: [],
         losActive: false,
+        // Terrain
+        terrainActive: false,
     };
 
     // ================================================================
@@ -1373,7 +1416,7 @@
     let activeView = '3d';
     let infoTarget = null;
 
-    // Three.js
+    // Three.js (Planet)
     let threeScene = null;
     let threeCamera = null;
     let threeRenderer = null;
@@ -1390,6 +1433,17 @@
     let threeLabelRenderer = null;
     let threeIsTrafficVisible = true;
     let threeIsLabelsVisible = true;
+
+    // Terrain Sim
+    let terrainSimActive = false;
+    let terrainScene = null;
+    let terrainCamera = null;
+    let terrainRenderer = null;
+    let terrainControls = null;
+    let terrainContainer = document.getElementById('terrainContainer');
+    let terrainAnimationId = null;
+    let terrainPulseRing = null;
+    let terrainBeaconLight = null;
 
     // Tactical Drawing
     let tacticalDrawControl = null;
@@ -1439,7 +1493,7 @@
         initUI();
         initKeyboard();
         initAPI();
-        initTacticalDrawing();  // <-- FIXED: now called
+        initTacticalDrawing();
         initOfflineDB();
 
         loadData();
@@ -1456,6 +1510,7 @@
         document.getElementById('currentTierDisplay').textContent = CONFIG.tierNames[CONFIG.defaultTier];
 
         console.log('%c✅ System ready', 'color:#ff6b35;font-weight:bold;');
+        console.log('%c🌍 Terrain Sim: click Terrain button to launch full 3D terrain', 'color:#4fc3f7;font-weight:bold;');
     }
 
     // ================================================================
@@ -1490,7 +1545,6 @@
                 if (nearest) {
                     showInfo(nearest.name, nearest.category, nearest.lat, nearest.lng, nearest.height);
                 }
-                // DR: click to set starting position
                 state.dr.position = { lat, lng };
                 updateDRDisplay();
             });
@@ -1606,7 +1660,6 @@
             }, 200);
         });
 
-        // Pace: step length input
         document.getElementById('paceStepLen').addEventListener('change', (e) => {
             state.pace.stepLen = parseFloat(e.target.value) || 75;
         });
@@ -1628,24 +1681,15 @@
                 e.preventDefault();
                 setTier(parseInt(e.key));
             }
-            if (e.key === 'h' || e.key === 'H') { e.preventDefault();
-                flyHome(); }
-            if (e.key === 'm' || e.key === 'M') { e.preventDefault();
-                toggleMenu(); }
-            if (e.key === 'f' || e.key === 'F') { e.preventDefault();
-                toggleFullscreen(); }
-            if (e.key === 'p' || e.key === 'P') { e.preventDefault();
-                togglePresentation(); }
-            if (e.key === 'r' || e.key === 'R') { e.preventDefault();
-                autoRotate(); }
-            if (e.key === 't' || e.key === 'T') { e.preventDefault();
-                autoTour(); }
-            if (e.key === 'g' || e.key === 'G') { e.preventDefault();
-                getGeolocation(); }
-            if (e.key === 's' && !e.ctrlKey) { e.preventDefault();
-                document.getElementById('searchInput').focus(); }
-            if (e.key === 'n' || e.key === 'N') { e.preventDefault();
-                toggleNightMode(); }
+            if (e.key === 'h' || e.key === 'H') { e.preventDefault(); flyHome(); }
+            if (e.key === 'm' || e.key === 'M') { e.preventDefault(); toggleMenu(); }
+            if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
+            if (e.key === 'p' || e.key === 'P') { e.preventDefault(); togglePresentation(); }
+            if (e.key === 'r' || e.key === 'R') { e.preventDefault(); autoRotate(); }
+            if (e.key === 't' || e.key === 'T') { e.preventDefault(); autoTour(); }
+            if (e.key === 'g' || e.key === 'G') { e.preventDefault(); getGeolocation(); }
+            if (e.key === 's' && !e.ctrlKey) { e.preventDefault(); document.getElementById('searchInput').focus(); }
+            if (e.key === 'n' || e.key === 'N') { e.preventDefault(); toggleNightMode(); }
             if (e.key === 'Escape') {
                 document.querySelectorAll('.panel:not(.hidden)').forEach(p => p.classList.add('hidden'));
                 document.getElementById('slideoutMenu').classList.remove('open');
@@ -1683,7 +1727,6 @@
             togglePlanetLighting: togglePlanetLighting,
             resetPlanetCamera: resetPlanetCamera,
             toggleNightMode: toggleNightMode,
-            // New v5.2
             dr: {
                 applyManual: drApplyManual,
                 startAuto: drStartAuto,
@@ -1709,6 +1752,11 @@
                 calculate: calculateLOS,
                 clear: clearLOS,
             },
+            terrain: {
+                toggle: initTerrainSim,
+                close: closeTerrainSim,
+                status: () => terrainSimActive,
+            }
         };
         addLog('info', 'API initialized (v5.2)');
     }
@@ -1809,7 +1857,7 @@
     }
 
     // ================================================================
-    // 14. VIEWS
+    // 14. VIEWS (UPDATED with Terrain support)
     // ================================================================
     function switchView(view) {
         activeView = view;
@@ -1820,12 +1868,27 @@
         const cesium = document.getElementById('cesiumContainer');
         const leaflet = document.getElementById('leafletContainer');
         const three = document.getElementById('threeContainer');
+        const terrain = document.getElementById('terrainContainer');
 
+        // Hide all
         cesium.style.display = 'none';
         leaflet.style.display = 'none';
         three.style.display = 'none';
+        terrain.style.display = 'none';
 
-        if (view === '3d' || view === 'globe' || view === 'terrain') {
+        if (view === 'terrain') {
+            // Launch Terrain Sim
+            initTerrainSim();
+            document.getElementById('viewDisplay').textContent = '🌍 TERRAIN';
+            return;
+        }
+
+        // If we're coming from terrain, close it
+        if (terrainSimActive && view !== 'terrain') {
+            closeTerrainSim();
+        }
+
+        if (view === '3d' || view === 'globe') {
             three.style.display = 'block';
             document.getElementById('viewDisplay').textContent = '🌍 3D Planet';
             if (threeRenderer) {
@@ -1882,7 +1945,6 @@
             threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
             threeContainer.appendChild(threeRenderer.domElement);
 
-            // CSS2DRenderer for labels (optimized)
             threeLabelRenderer = new THREE.CSS2DRenderer();
             threeLabelRenderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
             threeLabelRenderer.domElement.style.position = 'absolute';
@@ -1891,7 +1953,6 @@
             threeLabelRenderer.domElement.style.pointerEvents = 'none';
             threeContainer.appendChild(threeLabelRenderer.domElement);
 
-            // OrbitControls
             threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
             threeControls.enableDamping = true;
             threeControls.dampingFactor = 0.05;
@@ -1901,7 +1962,6 @@
             threeControls.autoRotateSpeed = 0.5;
             threeControls.target.set(0, 0, 0);
 
-            // Lights
             const ambient = new THREE.AmbientLight(0x404060, 0.4);
             threeScene.add(ambient);
 
@@ -1917,35 +1977,26 @@
             fillLight.position.set(-10, 5, -10);
             threeScene.add(fillLight);
 
-            // Stars
             createThreeStars();
 
-            // Planet
             threePlanetGroup = createThreePlanet();
             threeScene.add(threePlanetGroup);
 
-            // City group
             threeCityGroup = new THREE.Group();
             threeScene.add(threeCityGroup);
 
-            // Traffic group
             threeTrafficGroup = new THREE.Group();
             threeScene.add(threeTrafficGroup);
 
-            // Label group (optimized with instancing)
             threeLabelGroup = new THREE.Group();
             threeScene.add(threeLabelGroup);
 
-            // Load cities
             loadThreeCities();
-
-            // Create traffic
             createThreeTraffic();
 
             state.threeInitialized = true;
             updatePlanetPanel();
 
-            // Resize handler
             const resizeObserver = new ResizeObserver(() => {
                 if (threeRenderer && threeCamera) {
                     const w = threeContainer.clientWidth;
@@ -1961,7 +2012,6 @@
             resizeObserver.observe(threeContainer);
             window._threeResizeObserver = resizeObserver;
 
-            // Animation loop
             function animateThree() {
                 if (!state.threeInitialized) return;
                 threeAnimationId = requestAnimationFrame(animateThree);
@@ -2037,13 +2087,11 @@
     function createThreePlanet() {
         const group = new THREE.Group();
 
-        // Create procedural texture
         const canvas = document.createElement('canvas');
         canvas.width = 2048;
         canvas.height = 1024;
         const ctx = canvas.getContext('2d');
 
-        // Ocean
         const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
         gradient.addColorStop(0, '#0a1a3a');
         gradient.addColorStop(0.25, '#0d2847');
@@ -2053,7 +2101,6 @@
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Continents
         const continents = [
             { x: 0.25, y: 0.3, rx: 0.12, ry: 0.1 },
             { x: 0.22, y: 0.35, rx: 0.08, ry: 0.08 },
@@ -2091,7 +2138,6 @@
             ctx.fill();
         });
 
-        // Clouds
         for (let i = 0; i < 60; i++) {
             const x = Math.random() * canvas.width;
             const y = Math.random() * canvas.height;
@@ -2108,7 +2154,6 @@
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
 
-        // Planet sphere
         const geometry = new THREE.SphereGeometry(CONFIG.planetRadius, 128, 128);
         const material = new THREE.MeshStandardMaterial({
             map: texture,
@@ -2122,7 +2167,6 @@
         planet.receiveShadow = true;
         group.add(planet);
 
-        // Atmosphere
         const atmoGeometry = new THREE.SphereGeometry(CONFIG.planetRadius * 1.02, 64, 64);
         const atmoMaterial = new THREE.MeshStandardMaterial({
             color: 0x4488ff,
@@ -2135,7 +2179,6 @@
         const atmosphere = new THREE.Mesh(atmoGeometry, atmoMaterial);
         group.add(atmosphere);
 
-        // Clouds (separate layer for rotation)
         const cloudGeometry = new THREE.SphereGeometry(CONFIG.planetRadius * 1.008, 64, 64);
         const cloudMaterial = new THREE.MeshPhongMaterial({
             transparent: true,
@@ -2151,17 +2194,10 @@
     }
 
     // ================================================================
-    // 18. THREE.JS — CITIES (optimized with instanced geometry)
+    // 18. THREE.JS — CITIES (optimized)
     // ================================================================
     function loadThreeCities() {
         const progressFill = document.getElementById('progressFill');
-
-        // Use instanced mesh for performance
-        const towerGeos = [];
-        const towerMats = [];
-        const positions = [];
-        const quaternions = [];
-        const scales = [];
 
         for (let i = 0; i < threeCityData.length; i++) {
             const cityData = threeCityData[i];
@@ -2169,23 +2205,6 @@
                 const pos = latLngToPosition(cityData.lat, cityData.lng, CONFIG.planetRadius);
                 const normal = pos.clone().normalize();
 
-                // Position
-                positions.push(pos.x, pos.y, pos.z);
-
-                // Quaternion
-                const up = new THREE.Vector3(0, 1, 0);
-                const quat = new THREE.Quaternion().setFromUnitVectors(up, normal);
-                quaternions.push(quat.x, quat.y, quat.z, quat.w);
-
-                // Scale
-                const scale = CONFIG.planetCityScale * (cityData.scale || 0.3);
-                scales.push(scale, scale, scale);
-
-                // Store for labels
-                threeCityData[i]._pos = pos;
-                threeCityData[i]._normal = normal;
-
-                // Add glow sphere (individual)
                 const sphereGeo = new THREE.SphereGeometry(0.03, 6, 6);
                 const sphereMat = new THREE.MeshBasicMaterial({
                     color: cityData.color,
@@ -2196,17 +2215,22 @@
                 sphere.position.copy(pos);
                 threeCityGroup.add(sphere);
 
-                // Tower (instanced later)
-                towerGeos.push(new THREE.CylinderGeometry(0.03, 0.05, 0.2, 6));
-                towerMats.push(new THREE.MeshStandardMaterial({
-                    color: cityData.color,
-                    metalness: 0.7,
-                    roughness: 0.3,
-                    emissive: new THREE.Color(cityData.color),
-                    emissiveIntensity: 0.15,
-                }));
+                const tower = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.03, 0.05, 0.2, 6),
+                    new THREE.MeshStandardMaterial({
+                        color: cityData.color,
+                        metalness: 0.7,
+                        roughness: 0.3,
+                        emissive: new THREE.Color(cityData.color),
+                        emissiveIntensity: 0.15,
+                    })
+                );
+                tower.position.copy(pos);
+                tower.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+                const scale = CONFIG.planetCityScale * (cityData.scale || 0.3);
+                tower.scale.set(scale, scale, scale);
+                threeCityGroup.add(tower);
 
-                // Label (CSS2D)
                 if (state.threeLabelsVisible) {
                     const div = document.createElement('div');
                     div.textContent = cityData.name;
@@ -2235,27 +2259,6 @@
             }
 
             progressFill.style.width = `${((i + 1) / threeCityData.length) * 50}%`;
-        }
-
-        // Create instanced towers
-        if (towerGeos.length > 0) {
-            // Use merged geometry for better performance
-            const mergedGeo = new THREE.BufferGeometry();
-            const mergedPos = [];
-            const mergedQuat = [];
-            const mergedScale = [];
-
-            for (let i = 0; i < towerGeos.length; i++) {
-                const pos = positions.slice(i*3, i*3+3);
-                const quat = quaternions.slice(i*4, i*4+4);
-                const scale = scales.slice(i*3, i*3+3);
-                // Use individual geometry for now (simpler)
-                const tower = new THREE.Mesh(towerGeos[i], towerMats[i]);
-                tower.position.set(pos[0], pos[1], pos[2]);
-                tower.quaternion.set(quat[0], quat[1], quat[2], quat[3]);
-                tower.scale.set(scale[0], scale[1], scale[2]);
-                threeCityGroup.add(tower);
-            }
         }
 
         document.getElementById('planetCityCount').textContent = threeCityData.length;
@@ -2716,7 +2719,6 @@
         }
 
         if (measurePoints.length >= 3 && state.measureMode === 'area') {
-            // Simple polygon area (approximate)
             let area = 0;
             const n = measurePoints.length;
             for (let i = 0; i < n; i++) {
@@ -2829,7 +2831,7 @@
     }
 
     // ================================================================
-    // 27. TACTICAL DRAWING (FIXED: called in init)
+    // 27. TACTICAL DRAWING
     // ================================================================
     function initTacticalDrawing() {
         try {
@@ -2913,7 +2915,6 @@
             notify('All tactical objects cleared', 'info');
             addLog('info', 'Tactical objects cleared');
         }
-        // Clear from IndexedDB too
         if (offlineDB) {
             offlineDB.clearTactical();
         }
@@ -3055,7 +3056,7 @@
     }
 
     // ================================================================
-    // 30. DEAD RECKONING (NEW v5.2)
+    // 30. DEAD RECKONING
     // ================================================================
     function drApplyManual() {
         const azimuth = parseFloat(document.getElementById('drAzimuth').value) || 0;
@@ -3069,14 +3070,12 @@
         state.dr.distance += distance;
         state.dr.points.push({ lat: newPos.lat, lng: newPos.lng });
 
-        // Update map
         updateDRMarker();
         updateDRDisplay();
 
         notify(`DR: ${distance}m at ${azimuth}° → ${newPos.lat.toFixed(4)}, ${newPos.lng.toFixed(4)}`, 'info');
         addLog('info', `DR manual: ${distance}m @ ${azimuth}°`);
 
-        // Fly to new position in 3D
         flyTo(newPos.lat, newPos.lng, 5000);
         updateCoords(newPos.lat, newPos.lng);
     }
@@ -3084,7 +3083,6 @@
     function drStartAuto() {
         if (drInterval) return;
 
-        // Try to use DeviceOrientation API
         if (window.DeviceOrientationEvent) {
             window.addEventListener('deviceorientation', drHandleOrientation);
             notify('DR: Using device orientation', 'info');
@@ -3093,9 +3091,8 @@
         state.dr.active = true;
         drInterval = setInterval(() => {
             if (!state.dr.active) return;
-            // Auto mode: use current heading
             const azimuth = state.dr.heading || 0;
-            const distance = 5; // 5m per step
+            const distance = 5;
             const pos = state.dr.position;
             const newPos = calculatePosition(pos.lat, pos.lng, azimuth, distance);
 
@@ -3106,10 +3103,7 @@
             updateDRMarker();
             updateDRDisplay();
             updateCoords(newPos.lat, newPos.lng);
-
-            // Update 3D position
             flyTo(newPos.lat, newPos.lng, 5000);
-
         }, 1000);
 
         document.getElementById('drStatus').textContent = '▶️ Running (Auto)';
@@ -3170,7 +3164,6 @@
             .bindPopup(`DR Position<br>${pos.lat.toFixed(4)}, ${pos.lng.toFixed(4)}`)
             .addTo(leafletMap);
 
-        // Draw path
         if (drLine) leafletMap.removeLayer(drLine);
         if (state.dr.points.length > 1) {
             drLine = L.polyline(state.dr.points.map(p => [p.lat, p.lng]), {
@@ -3191,20 +3184,19 @@
     }
 
     // ================================================================
-    // 31. PACE COUNT (NEW v5.2)
+    // 31. PACE COUNT
     // ================================================================
     function paceAddSteps(count) {
         state.pace.steps += count;
-        const stepLen = state.pace.stepLen / 100; // cm → m
+        const stepLen = state.pace.stepLen / 100;
         state.pace.distance += count * stepLen;
 
-        // Calculate pace
         if (!paceStartTime) {
             paceStartTime = Date.now();
         }
-        const elapsed = (Date.now() - paceStartTime) / 1000 / 60; // minutes
+        const elapsed = (Date.now() - paceStartTime) / 1000 / 60;
         if (elapsed > 0) {
-            const pace = elapsed / (state.pace.distance / 1000); // min/km
+            const pace = elapsed / (state.pace.distance / 1000);
             document.getElementById('pacePace').textContent = pace.toFixed(1) + ' min/km';
             const speed = (state.pace.distance / 1000) / (elapsed / 60);
             document.getElementById('paceSpeed').textContent = speed.toFixed(1) + ' km/h';
@@ -3213,7 +3205,6 @@
         document.getElementById('paceSteps').textContent = state.pace.steps;
         document.getElementById('paceDistance').textContent = state.pace.distance.toFixed(0) + ' m';
 
-        // Store history
         state.pace.history.push({
             steps: state.pace.steps,
             distance: state.pace.distance,
@@ -3237,7 +3228,7 @@
     }
 
     // ================================================================
-    // 32. OFFLINE MODE (NEW v5.2)
+    // 32. OFFLINE MODE
     // ================================================================
     function initOfflineDB() {
         try {
@@ -3264,7 +3255,6 @@
                 document.getElementById('offlineStatus').textContent = '⚪ Disabled';
             };
 
-            // Check online status
             window.addEventListener('online', () => {
                 state.offline.status = 'online';
                 document.getElementById('offlineStatus').textContent = '🟢 Online';
@@ -3294,7 +3284,6 @@
         const bounds = leafletMap.getBounds();
         const tileSize = 256;
 
-        // Calculate tile range
         const tileBounds = L.bounds(
             leafletMap.project(bounds.getSouthWest(), zoom),
             leafletMap.project(bounds.getNorthEast(), zoom)
@@ -3311,11 +3300,6 @@
         document.getElementById('offlineProgressBar').style.width = '0%';
 
         notify(`Downloading ${totalTiles} tiles...`, 'info');
-
-        const urls = [
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-        ];
 
         for (let x = minX; x <= maxX; x++) {
             for (let y = minY; y <= maxY; y++) {
@@ -3377,7 +3361,7 @@
     }
 
     // ================================================================
-    // 33. NATO SYMBOL LIBRARY (NEW v5.2)
+    // 33. NATO SYMBOL LIBRARY
     // ================================================================
     function applyNATOSymbol(symbolCode) {
         if (!leafletMap) {
@@ -3408,7 +3392,6 @@
             .bindPopup(`NATO Symbol: ${symbolCode}`)
             .addTo(leafletMap);
 
-        // Add to tactical drawings
         tacticalDrawings.push({
             type: 'nato_symbol',
             layer: natoMarker,
@@ -3421,7 +3404,7 @@
     }
 
     // ================================================================
-    // 34. LINE OF SIGHT (NEW v5.2)
+    // 34. LINE OF SIGHT
     // ================================================================
     function calculateLOS() {
         if (!leafletMap) {
@@ -3458,18 +3441,14 @@
     function performLOS(p1, p2) {
         if (!leafletMap) return;
 
-        // Draw line
         if (losLine) leafletMap.removeLayer(losLine);
 
-        // Simple LOS: check if there's any obstruction (simplified)
-        // In real implementation, would use elevation data
         const dist = distanceBetween(p1.lat, p1.lng, p2.lat, p2.lng);
         const mid = {
             lat: (p1.lat + p2.lat) / 2,
             lng: (p1.lng + p2.lng) / 2
         };
 
-        // Random obstruction simulation (for demo)
         const hasObstruction = Math.random() > 0.6;
 
         losLine = L.polyline([p1, p2], {
@@ -3479,7 +3458,6 @@
             dashArray: hasObstruction ? '10, 5' : '2, 5'
         }).addTo(leafletMap);
 
-        // Add zone visualization (circle around midpoint)
         const zoneRadius = hasObstruction ? 500 : 1000;
         const zone = L.circle(mid, {
             radius: zoneRadius,
@@ -3492,7 +3470,6 @@
         notify(`LOS: ${hasObstruction ? '🔴 OBSTRUCTED' : '🟢 CLEAR'} (${(dist/1000).toFixed(2)}km)`, hasObstruction ? 'warning' : 'success');
         addLog('info', `LOS: ${hasObstruction ? 'Obstructed' : 'Clear'}, ${(dist/1000).toFixed(2)}km`);
 
-        // Store for clearing
         window._losZone = zone;
         window._losPoints = [p1, p2];
     }
@@ -3519,9 +3496,8 @@
         }
 
         const center = leafletMap.getCenter();
-        const radius = 2000; // 2km default
+        const radius = 2000;
 
-        // Draw engagement zone
         const zone = L.circle([center.lat, center.lng], {
             radius: radius,
             color: '#ff4444',
@@ -3531,7 +3507,6 @@
             dashArray: '8, 4'
         }).addTo(leafletMap);
 
-        // Add to tactical drawings
         tacticalDrawings.push({
             type: 'zone',
             layer: zone,
@@ -3543,7 +3518,7 @@
     }
 
     // ================================================================
-    // 35. EXPORT / IMPORT PROJECT (NEW v5.2)
+    // 35. EXPORT / IMPORT PROJECT
     // ================================================================
     function exportProject() {
         const projectData = {
@@ -3608,14 +3583,12 @@
                 try {
                     const data = JSON.parse(ev.target.result);
                     if (data.version && data.version.startsWith('5.')) {
-                        // Restore state
                         if (data.state) {
                             Object.assign(state, data.state);
                             setTier(state.tier);
                             switchView(state.view);
                             if (state.nightMode) toggleNightMode();
                         }
-                        // Restore tactical objects
                         if (data.tactical && data.tactical.length > 0 && leafletMap) {
                             data.tactical.forEach(t => {
                                 if (t.geojson) {
@@ -3632,7 +3605,6 @@
                             });
                             notify(`Imported ${data.tactical.length} tactical objects`, 'success');
                         }
-                        // Restore DR
                         if (data.dr) {
                             state.dr.position = data.dr.position || { lat: 48.8566, lng: 2.3522 };
                             state.dr.distance = data.dr.distance || 0;
@@ -3642,7 +3614,6 @@
                             }
                             updateDRDisplay();
                         }
-                        // Restore Pace
                         if (data.pace) {
                             state.pace.steps = data.pace.steps || 0;
                             state.pace.distance = data.pace.distance || 0;
@@ -3677,6 +3648,11 @@
             downloadImage(canvas, 'planet_screenshot.png');
             notify('Planet screenshot saved', 'success');
             addLog('info', 'Planet screenshot');
+        } else if (terrainSimActive && terrainRenderer) {
+            const canvas = terrainRenderer.domElement;
+            downloadImage(canvas, 'terrain_screenshot.png');
+            notify('Terrain screenshot saved', 'success');
+            addLog('info', 'Terrain screenshot');
         } else if (leafletMap) {
             notify('Screenshot (2D) — use Print Screen', 'info');
         }
@@ -3835,13 +3811,11 @@
                     if (state.nightMode) {
                         document.body.classList.add('night-mode');
                     }
-                    // DR
                     if (parsed.dr) {
                         state.dr.position = parsed.dr.position || { lat: 48.8566, lng: 2.3522 };
                         state.dr.distance = parsed.dr.distance || 0;
                         state.dr.points = parsed.dr.points || [];
                     }
-                    // Pace
                     if (parsed.pace) {
                         state.pace.steps = parsed.pace.steps || 0;
                         state.pace.distance = parsed.pace.distance || 0;
@@ -3898,10 +3872,8 @@
     function toggleNightMode() {
         state.nightMode = !state.nightMode;
         document.body.classList.toggle('night-mode', state.nightMode);
-        // Apply to Three.js scene
         if (threeScene) {
             threeScene.background = new THREE.Color(state.nightMode ? 0x1a1a2e : 0x0a0e17);
-            // Adjust lights
             if (threeScene.userData.sunLight) {
                 threeScene.userData.sunLight.intensity = state.nightMode ? 0.5 : 2.5;
             }
@@ -3949,6 +3921,7 @@
             'Pace steps': state.pace.steps,
             'Offline tiles': state.offline.cachedTiles,
             'Night mode': state.nightMode,
+            'Terrain active': terrainSimActive,
         };
         let msg = '🔍 Debug:\n';
         Object.entries(info).forEach(([k, v]) => msg += `${k}: ${v}\n`);
@@ -4042,7 +4015,6 @@
 
         setInterval(updateClock, 1000);
 
-        // Auto-save every 30s
         setInterval(() => {
             saveState();
         }, 30000);
@@ -4055,7 +4027,535 @@
     }
 
     // ================================================================
-    // 42. START
+    // 42. TERRAIN SIM — FULL 3D TERRAIN MODEL
+    // ================================================================
+    function initTerrainSim() {
+        // If already active, just show it
+        if (terrainSimActive) {
+            terrainContainer.style.display = 'block';
+            if (threeContainer) threeContainer.style.display = 'none';
+            if (leafletMap) document.getElementById('leafletContainer').style.display = 'none';
+            return;
+        }
+
+        addLog('info', '🌍 Launching TERRAIN SIM — full 3D terrain model');
+        notify('🌍 Terrain Sim: generating terrain...', 'info');
+
+        try {
+            // Hide other views
+            if (threeContainer) threeContainer.style.display = 'none';
+            if (leafletMap) document.getElementById('leafletContainer').style.display = 'none';
+            terrainContainer.style.display = 'block';
+
+            // Create scene
+            terrainScene = new THREE.Scene();
+            terrainScene.background = new THREE.Color(0x1a2a3a);
+
+            // Camera
+            terrainCamera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 2000);
+            terrainCamera.position.set(60, 45, 70);
+
+            // Renderer
+            terrainRenderer = new THREE.WebGLRenderer({ antialias: true });
+            terrainRenderer.setSize(window.innerWidth, window.innerHeight);
+            terrainRenderer.shadowMap.enabled = true;
+            terrainRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            terrainRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            terrainContainer.appendChild(terrainRenderer.domElement);
+
+            // Controls
+            terrainControls = new THREE.OrbitControls(terrainCamera, terrainRenderer.domElement);
+            terrainControls.enableDamping = true;
+            terrainControls.dampingFactor = 0.06;
+            terrainControls.rotateSpeed = 0.8;
+            terrainControls.zoomSpeed = 1.2;
+            terrainControls.panSpeed = 0.6;
+            terrainControls.screenSpacePanning = true;
+            terrainControls.maxPolarAngle = Math.PI / 2.1;
+            terrainControls.minDistance = 15;
+            terrainControls.maxDistance = 180;
+
+            // Lighting
+            const ambient = new THREE.AmbientLight(0x1a2a3a, 0.6);
+            terrainScene.add(ambient);
+
+            const sun = new THREE.DirectionalLight(0xffe8cc, 1.6);
+            sun.position.set(35, 55, 25);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048;
+            sun.shadow.mapSize.height = 2048;
+            sun.shadow.camera.near = 0.5;
+            sun.shadow.camera.far = 150;
+            sun.shadow.camera.left = -90;
+            sun.shadow.camera.right = 90;
+            sun.shadow.camera.top = 90;
+            sun.shadow.camera.bottom = -90;
+            terrainScene.add(sun);
+
+            const fill = new THREE.PointLight(0x4466aa, 0.3);
+            fill.position.set(-35, 15, -25);
+            terrainScene.add(fill);
+
+            // ============================================================
+            // GENERATE TERRAIN
+            // ============================================================
+            const W = CONFIG.terrainWidth;
+            const D = CONFIG.terrainDepth;
+            const S = CONFIG.terrainSegments;
+
+            const geo = new THREE.PlaneGeometry(W, D, S, S);
+            geo.rotateX(-Math.PI / 2);
+            const pos = geo.attributes.position.array;
+
+            // Height calculation
+            for (let i = 0; i < pos.length; i += 3) {
+                const x = pos[i];
+                const z = pos[i + 2];
+                let y = 0;
+
+                // Base terrain noise
+                y += Math.sin(x * 0.12) * Math.cos(z * 0.12) * 2.0;
+                y += Math.sin(x * 0.28 + 0.8) * Math.cos(z * 0.25) * 1.2;
+                y += Math.sin(x * 0.45) * 0.5;
+                y += Math.cos(z * 0.4) * 0.5;
+                y += Math.abs(Math.sin(x * 0.08) * Math.cos(z * 0.07)) * 2.0;
+
+                // Mountains
+                const peaks = [
+                    { x: 30, z: 25, height: 6.0, radius: 32 },
+                    { x: -25, z: -20, height: 5.0, radius: 30 },
+                    { x: 45, z: -30, height: 3.5, radius: 22 },
+                    { x: -40, z: 35, height: 4.0, radius: 25 }
+                ];
+                peaks.forEach(p => {
+                    const d = Math.hypot(x - p.x, z - p.z);
+                    if (d < p.radius) {
+                        y += p.height * Math.pow(1 - d / p.radius, 2.4);
+                    }
+                });
+
+                // River valley
+                const riverZ = 7 * Math.sin(x * 0.07) + 3;
+                const riverDist = Math.abs(z - riverZ);
+                if (riverDist < 4.0) y -= 1.5 * (1 - riverDist / 4.0);
+
+                // Lake
+                const lakeDist = Math.hypot(x - 42, z - (-14));
+                if (lakeDist < 16) y = 0.2 + (lakeDist / 16) * 0.6;
+
+                // Mine
+                const mineDist = Math.hypot(x - (-32), z - 28);
+                if (mineDist < 9) y -= 1.8 * (1 - mineDist / 9);
+
+                // Valley
+                const valleyDist = Math.hypot(x - (-50), z - (-45));
+                if (valleyDist < 20) y = 0.1 + (valleyDist / 20) * 0.8;
+
+                y = Math.max(0.05, Math.min(6.5, y * 1.5 + 0.1));
+                pos[i + 1] = y;
+            }
+            geo.computeVertexNormals();
+
+            // Colors
+            const colors = [];
+            for (let i = 0; i < pos.length; i += 3) {
+                const y = pos[i + 1];
+                const t = Math.min(1, y / 6.0);
+                let r, g, b;
+                if (t < 0.2) { r = 0.15; g = 0.55; b = 0.2; }
+                else if (t < 0.45) { r = 0.5 + (t - 0.2) * 1.2; g = 0.55 + (t - 0.2) * 0.3; b = 0.2; }
+                else if (t < 0.7) { r = 0.75; g = 0.65; b = 0.4; }
+                else { r = 0.85; g = 0.72; b = 0.5; }
+                colors.push(r, g, b);
+            }
+            geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(colors), 3));
+
+            const terrainMat = new THREE.MeshStandardMaterial({
+                vertexColors: true,
+                roughness: 0.7,
+                metalness: 0.05
+            });
+            const terrain = new THREE.Mesh(geo, terrainMat);
+            terrain.receiveShadow = true;
+            terrain.castShadow = true;
+            terrainScene.add(terrain);
+
+            // Helper to get height at any point
+            function getTerrainH(x, z) {
+                const half = W / 2;
+                const step = W / S;
+                let ix = (x + half) / step;
+                let iz = (z + half) / step;
+                ix = Math.min(Math.max(ix, 0), S - 1);
+                iz = Math.min(Math.max(iz, 0), S - 1);
+                const ix0 = Math.floor(ix), iz0 = Math.floor(iz);
+                const ix1 = Math.min(ix0 + 1, S - 1);
+                const iz1 = Math.min(iz0 + 1, S - 1);
+                const getY = (i, j) => pos[(j * (S + 1) + i) * 3 + 1];
+                const y00 = getY(ix0, iz0), y10 = getY(ix1, iz0);
+                const y01 = getY(ix0, iz1), y11 = getY(ix1, iz1);
+                const tx = ix - ix0, tz = iz - iz0;
+                const y0 = y00 * (1 - tx) + y10 * tx;
+                const y1 = y01 * (1 - tx) + y11 * tx;
+                return y0 * (1 - tz) + y1 * tz;
+            }
+
+            // ============================================================
+            // 12 TACTICAL OBJECTS ON TERRAIN
+            // ============================================================
+
+            // 1. SETTLEMENT
+            const settlement = { x: 20, z: -12 };
+            const sy = getTerrainH(settlement.x, settlement.z);
+            for (let i = 0; i < 60; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const r = 0.5 + Math.random() * 8;
+                const ox = Math.cos(a) * r;
+                const oz = Math.sin(a) * r;
+                const hy = getTerrainH(settlement.x + ox, settlement.z + oz);
+                const house = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.7),
+                    new THREE.MeshStandardMaterial({ color: 0xccbb99 }));
+                house.position.set(settlement.x + ox, hy + 0.25, settlement.z + oz);
+                house.castShadow = true;
+                terrainScene.add(house);
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(0.5, 0.35, 4),
+                    new THREE.MeshStandardMaterial({ color: 0xaa6e3a }));
+                roof.position.set(settlement.x + ox, hy + 0.6, settlement.z + oz);
+                roof.castShadow = true;
+                terrainScene.add(roof);
+            }
+            terrainScene.add(createTerrainLabel('🏘️ SETTLEMENT', settlement.x, sy + 1.4, settlement.z, '#ffcc88'));
+
+            // 2. LAKE
+            const lakePos = { x: 42, z: -14 };
+            const ly = getTerrainH(lakePos.x, lakePos.z);
+            const lake = new THREE.Mesh(
+                new THREE.CylinderGeometry(16, 16, 0.08, 32),
+                new THREE.MeshStandardMaterial({ color: 0x3399cc, emissive: 0x004466, transparent: true, opacity: 0.8 })
+            );
+            lake.position.set(lakePos.x, ly - 0.02, lakePos.z);
+            terrainScene.add(lake);
+            terrainScene.add(createTerrainLabel('💧 LAKE', lakePos.x, ly + 0.8, lakePos.z, '#88ccff'));
+
+            // 3. RIVER
+            const riverPoints = [];
+            for (let t = -70; t <= 70; t += 1.5) {
+                const x = t;
+                const z = 7 * Math.sin(x * 0.07) + 3;
+                riverPoints.push(new THREE.Vector3(x, getTerrainH(x, z) - 0.05, z));
+            }
+            const riverLine = new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(riverPoints),
+                new THREE.LineBasicMaterial({ color: 0x44aaff })
+            );
+            terrainScene.add(riverLine);
+            terrainScene.add(createTerrainLabel('🏞️ RIVER', riverPoints[35].x, riverPoints[35].y + 0.8, riverPoints[35].z, '#88ddff'));
+
+            // 4. FOREST
+            for (let i = 0; i < 600; i++) {
+                const x = (Math.random() - 0.5) * 160;
+                const z = (Math.random() - 0.5) * 150;
+                const y = getTerrainH(x, z);
+                if (y > 4.5 || Math.hypot(x, z) < 18) continue;
+                const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 0.5, 5),
+                    new THREE.MeshStandardMaterial({ color: 0x8B5A2B }));
+                trunk.position.set(x, y + 0.25, z);
+                trunk.castShadow = true;
+                const foliage = new THREE.Mesh(new THREE.ConeGeometry(0.4, 0.6, 6),
+                    new THREE.MeshStandardMaterial({ color: 0x4A7A3A }));
+                foliage.position.set(x, y + 0.7, z);
+                foliage.castShadow = true;
+                terrainScene.add(trunk);
+                terrainScene.add(foliage);
+            }
+
+            // 5. MINE
+            const minePos = { x: -32, z: 28 };
+            const my = getTerrainH(minePos.x, minePos.z);
+            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 2.0, 2.0, 8),
+                new THREE.MeshStandardMaterial({ color: 0x8b6a4b }));
+            shaft.position.set(minePos.x, my - 0.5, minePos.z);
+            shaft.castShadow = true;
+            terrainScene.add(shaft);
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.5, 1.2),
+                new THREE.MeshStandardMaterial({ color: 0xaa8866 }));
+            tower.position.set(minePos.x, my + 1.25, minePos.z);
+            tower.castShadow = true;
+            terrainScene.add(tower);
+            const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.08, 8, 12),
+                new THREE.MeshStandardMaterial({ color: 0x887766 }));
+            wheel.position.set(minePos.x + 0.8, my + 1.5, minePos.z);
+            wheel.rotation.z = Math.PI / 2;
+            terrainScene.add(wheel);
+            terrainScene.add(createTerrainLabel('⛏️ MINE', minePos.x, my + 2.2, minePos.z, '#ccaa88'));
+
+            // 6. BUNKER
+            const bunkerPos = { x: -14, z: 34 };
+            const by2 = getTerrainH(bunkerPos.x, bunkerPos.z);
+            const door = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.8, 0.5),
+                new THREE.MeshStandardMaterial({ color: 0x665544 }));
+            door.position.set(bunkerPos.x, by2 + 0.9, bunkerPos.z);
+            door.castShadow = true;
+            terrainScene.add(door);
+            const top = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 1.5),
+                new THREE.MeshStandardMaterial({ color: 0x554433 }));
+            top.position.set(bunkerPos.x, by2 + 1.8, bunkerPos.z);
+            top.castShadow = true;
+            terrainScene.add(top);
+            terrainScene.add(createTerrainLabel('🏚️ BUNKER', bunkerPos.x, by2 + 2.2, bunkerPos.z, '#aa88ff'));
+
+            // 7. SEA COAST
+            for (let x = -75; x <= 75; x += 3) {
+                const z = 62;
+                const y = getTerrainH(x, z);
+                const sand = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.15, 2.5),
+                    new THREE.MeshStandardMaterial({ color: 0xefd9b0 }));
+                sand.position.set(x, y - 0.03, z);
+                sand.receiveShadow = true;
+                terrainScene.add(sand);
+            }
+            const sea = new THREE.Mesh(
+                new THREE.PlaneGeometry(200, 70),
+                new THREE.MeshStandardMaterial({ color: 0x2288aa, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+            );
+            sea.rotation.x = -Math.PI / 2;
+            sea.position.set(0, getTerrainH(0, 68) - 0.2, 72);
+            terrainScene.add(sea);
+            terrainScene.add(createTerrainLabel('🌊 SEA COAST', 0, getTerrainH(0, 60) + 1.2, 60, '#88aaff'));
+
+            // 8. CHECKPOINT
+            const cpPos = { x: 8, z: 30 };
+            const cpy = getTerrainH(cpPos.x, cpPos.z);
+            const road = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 1.0),
+                new THREE.MeshStandardMaterial({ color: 0x666666 }));
+            road.position.set(cpPos.x, cpy + 0.05, cpPos.z);
+            terrainScene.add(road);
+            const barrier = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 0.3),
+                new THREE.MeshStandardMaterial({ color: 0xaa5555 }));
+            barrier.position.set(cpPos.x, cpy + 0.5, cpPos.z + 0.8);
+            terrainScene.add(barrier);
+            const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.15, 1.2, 6),
+                new THREE.MeshStandardMaterial({ color: 0x887766 }));
+            post.position.set(cpPos.x - 0.6, cpy + 0.6, cpPos.z + 0.3);
+            terrainScene.add(post);
+            terrainScene.add(createTerrainLabel('🚧 CHECKPOINT', cpPos.x, cpy + 1.2, cpPos.z, '#ffaa88'));
+
+            // 9. MILITARY BASE
+            const basePos = { x: -22, z: -24 };
+            const bby = getTerrainH(basePos.x, basePos.z);
+            for (let i = -3; i <= 3; i++) {
+                for (let j = -3; j <= 3; j++) {
+                    if (Math.random() > 0.6 || (i === 0 && j === 0)) continue;
+                    const b = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.8, 1.5),
+                        new THREE.MeshStandardMaterial({ color: 0x7a8a5a }));
+                    b.position.set(basePos.x + i * 3.0, bby + 0.4, basePos.z + j * 3.0);
+                    b.castShadow = true;
+                    terrainScene.add(b);
+                }
+            }
+            const vehPos = [
+                [-20, -25], [-24, -27], [-19, -29],
+                [-26, -24], [-21, -22], [-25, -26]
+            ];
+            vehPos.forEach(([x, z]) => {
+                const vy = getTerrainH(x, z);
+                const hull = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 1.4),
+                    new THREE.MeshStandardMaterial({ color: 0x5a6e3a }));
+                hull.position.set(x, vy + 0.2, z);
+                hull.castShadow = true;
+                terrainScene.add(hull);
+                const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.3, 6),
+                    new THREE.MeshStandardMaterial({ color: 0x4a5e2a }));
+                turret.position.set(x, vy + 0.5, z);
+                turret.castShadow = true;
+                terrainScene.add(turret);
+            });
+            for (let i = 0; i < 30; i++) {
+                const a = Math.random() * Math.PI * 2;
+                const r = 3 + Math.random() * 8;
+                const ix = basePos.x + Math.cos(a) * r;
+                const iz = basePos.z + Math.sin(a) * r;
+                const iy = getTerrainH(ix, iz);
+                const soldier = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, 0.3),
+                    new THREE.MeshStandardMaterial({ color: [0xccaa88, 0xbb9966, 0xaa8866, 0xddbb99][Math.floor(Math.random() * 4)] }));
+                soldier.position.set(ix, iy + 0.3, iz);
+                soldier.castShadow = true;
+                terrainScene.add(soldier);
+                const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 6, 6),
+                    new THREE.MeshStandardMaterial({ color: 0xddbb99 }));
+                head.position.set(ix, iy + 0.7, iz);
+                head.castShadow = true;
+                terrainScene.add(head);
+            }
+            terrainScene.add(createTerrainLabel('🏰 MILITARY BASE', basePos.x, bby + 2.4, basePos.z, '#ffaa66'));
+
+            // 10. EFFECTS: Dust particles
+            const particleCount = 1200;
+            const particleGeo = new THREE.BufferGeometry();
+            const particlePos = [];
+            for (let i = 0; i < particleCount; i++) {
+                particlePos.push((Math.random() - 0.5) * 180);
+                particlePos.push((Math.random() - 0.5) * 20 + 1.5);
+                particlePos.push((Math.random() - 0.5) * 180);
+            }
+            particleGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(particlePos), 3));
+            const particles = new THREE.Points(particleGeo,
+                new THREE.PointsMaterial({ color: 0x77aaff, size: 0.06, transparent: true, opacity: 0.3 }));
+            terrainScene.add(particles);
+
+            // 11. COMMAND POST
+            const cpY2 = getTerrainH(-12, -8);
+            const cpBuilding = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.4, 1.2),
+                new THREE.MeshStandardMaterial({ color: 0x88aaff, emissive: 0x224466 }));
+            cpBuilding.position.set(-12, cpY2 + 0.2, -8);
+            cpBuilding.castShadow = true;
+            terrainScene.add(cpBuilding);
+            const flag = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.2, 4),
+                new THREE.MeshStandardMaterial({ color: 0xccccaa }));
+            flag.position.set(-12, cpY2 + 0.9, -8);
+            terrainScene.add(flag);
+            terrainScene.add(createTerrainLabel('🚩 COMMAND POST', -12, cpY2 + 1.3, -8, '#88ddff'));
+
+            // 12. WAYPOINT BEACON
+            const wpPos = { x: 12, z: -8 };
+            const wy = getTerrainH(wpPos.x, wpPos.z);
+            const beaconLight = new THREE.PointLight(0xff6600, 0.9, 30);
+            beaconLight.position.set(wpPos.x, wy + 1.2, wpPos.z);
+            terrainScene.add(beaconLight);
+            terrainBeaconLight = beaconLight;
+            const beaconSphere = new THREE.Mesh(
+                new THREE.SphereGeometry(0.4, 16, 16),
+                new THREE.MeshStandardMaterial({ color: 0xff8844, emissive: 0xff4411, emissiveIntensity: 0.5 })
+            );
+            beaconSphere.position.set(wpPos.x, wy + 0.5, wpPos.z);
+            terrainScene.add(beaconSphere);
+            const pulseRing = new THREE.Mesh(
+                new THREE.RingGeometry(0.7, 1.2, 32),
+                new THREE.MeshBasicMaterial({ color: 0xffaa44, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
+            );
+            pulseRing.position.set(wpPos.x, wy + 0.2, wpPos.z);
+            pulseRing.rotation.x = -Math.PI / 2;
+            terrainScene.add(pulseRing);
+            terrainPulseRing = pulseRing;
+            terrainScene.add(createTerrainLabel('📍 WAYPOINT', wpPos.x, wy + 1.5, wpPos.z, '#ffaa66'));
+
+            terrainSimActive = true;
+            let tTime = 0;
+
+            // Animation loop
+            function animateTerrain() {
+                if (!terrainSimActive) return;
+                terrainAnimationId = requestAnimationFrame(animateTerrain);
+                tTime += 0.012;
+
+                terrainControls.update();
+
+                if (terrainPulseRing) {
+                    const scale = 1 + Math.sin(tTime * 4) * 0.15;
+                    terrainPulseRing.scale.set(scale, scale, 1);
+                    terrainPulseRing.material.opacity = 0.4 + Math.sin(tTime * 5) * 0.3;
+                }
+                if (terrainBeaconLight) {
+                    terrainBeaconLight.intensity = 0.7 + Math.sin(tTime * 3) * 0.3;
+                }
+
+                terrainRenderer.render(terrainScene, terrainCamera);
+            }
+
+            animateTerrain();
+            addLog('success', '🌍 TERRAIN SIM fully loaded!');
+            notify('🌍 Terrain Sim: ready!', 'success');
+
+            // Close button
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'terrain-close-btn';
+            closeBtn.textContent = '✕ CLOSE TERRAIN';
+            closeBtn.onclick = closeTerrainSim;
+            terrainContainer.appendChild(closeBtn);
+
+            // Info overlay
+            const infoDiv = document.createElement('div');
+            infoDiv.className = 'terrain-info-overlay';
+            infoDiv.textContent = '🌍 DRACOFIRE TERRAIN SIM • ALL 12 FEATURES • Drag to explore';
+            terrainContainer.appendChild(infoDiv);
+
+            // Resize handler
+            const resizeObserver2 = new ResizeObserver(() => {
+                if (terrainRenderer && terrainCamera) {
+                    const w = window.innerWidth;
+                    const h = window.innerHeight;
+                    terrainCamera.aspect = w / h;
+                    terrainCamera.updateProjectionMatrix();
+                    terrainRenderer.setSize(w, h);
+                }
+            });
+            resizeObserver2.observe(document.body);
+            terrainContainer._resizeObserver = resizeObserver2;
+
+        } catch (e) {
+            console.error('Terrain Sim error:', e);
+            notify('Error loading Terrain Sim', 'error');
+            closeTerrainSim();
+        }
+    }
+
+    // ================================================================
+    // 43. TERRAIN HELPERS
+    // ================================================================
+    function createTerrainLabel(text, x, y, z, color = '#88ff88') {
+        const div = document.createElement('div');
+        div.textContent = text;
+        div.style.backgroundColor = 'rgba(0,0,0,0.8)';
+        div.style.color = color;
+        div.style.fontSize = '11px';
+        div.style.fontWeight = '600';
+        div.style.padding = '3px 16px';
+        div.style.borderRadius = '30px';
+        div.style.borderLeft = `3px solid ${color}`;
+        div.style.fontFamily = 'Inter, monospace';
+        div.style.letterSpacing = '0.3px';
+        div.style.backdropFilter = 'blur(4px)';
+        div.style.boxShadow = '0 2px 10px rgba(0,0,0,0.5)';
+        div.style.pointerEvents = 'none';
+        const label = new THREE.CSS2DObject(div);
+        label.position.set(x, y, z);
+        return label;
+    }
+
+    // ================================================================
+    // 44. CLOSE TERRAIN SIM
+    // ================================================================
+    function closeTerrainSim() {
+        if (terrainContainer) {
+            if (terrainContainer._resizeObserver) {
+                terrainContainer._resizeObserver.disconnect();
+            }
+            if (terrainAnimationId) {
+                cancelAnimationFrame(terrainAnimationId);
+                terrainAnimationId = null;
+            }
+            terrainContainer.innerHTML = '';
+            terrainContainer.style.display = 'none';
+        }
+        terrainSimActive = false;
+        terrainPulseRing = null;
+        terrainBeaconLight = null;
+        if (threeContainer) threeContainer.style.display = 'block';
+        if (leafletMap) document.getElementById('leafletContainer').style.display = 'none';
+        if (activeView === 'terrain') {
+            activeView = '3d';
+            // Update button state
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === '3d');
+            });
+            document.getElementById('viewDisplay').textContent = '🌍 3D Planet';
+        }
+        addLog('info', '🌍 Terrain Sim closed');
+        notify('Terrain Sim closed', 'info');
+    }
+
+    // ================================================================
+    // 45. START
     // ================================================================
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
@@ -4064,54 +4564,15 @@
     }
 
     // ================================================================
-    // 43. FINAL LOG
+    // 46. FINAL LOG
     // ================================================================
     console.log(`%c📦 Cavibara + DRACOFIRE v${CONFIG.version} loaded`, 'color:#ffd700;');
     console.log('%c💡 Use window.Cavibara for control', 'color:#8892b0;');
-    console.log('%c⌨️ Hotkeys: 1-4 (views), Ctrl+1-5 (tiers), H (home), M (menu), F (fullscreen), P (presentation), N (night mode), R (rotate), T (tour)', 'color:#8892b0;');
-    console.log('%c🌍 3D planet — primary view!', 'color:#4fc3f7;');
+    console.log('%c🌍 3D planet + FULL Terrain Sim — dual 3D engines!', 'color:#4fc3f7;');
+    console.log('%c🌍 Terrain Sim: 12 tactical objects on realistic terrain', 'color:#ffaa66;font-weight:bold;');
     console.log('%c✅ All systems ready!', 'color:#ff6b35;font-weight:bold;');
     console.log('%c🧊 Antarctica: 10 research stations included!', 'color:#ffffff;font-weight:bold;');
-    console.log('%c🎯 Tactical tools active!', 'color:#ff4444;font-weight:bold;');
-
-    // ================================================================
-    // WHAT'S NEW IN v5.2:
-    // ================================================================
-    console.log(`
-    ╔══════════════════════════════════════════════════════════════╗
-    ║  CAVIBARA + DRACOFIRE v5.2 — WHAT'S NEW                    ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  NEW FEATURES:                                              ║
-    ║  ✅ Dead Reckoning — navigation by azimuth + distance       ║
-    ║  ✅ Pace Count — step counter with speed/pace              ║
-    ║  ✅ Offline Mode — tile caching with IndexedDB             ║
-    ║  ✅ NATO Symbol Library — quick apply military symbols     ║
-    ║  ✅ Line of Sight (LOS) — visibility analysis              ║
-    ║  ✅ Zone Analysis — engagement zone visualization          ║
-    ║  ✅ Full Project Export/Import — all data in one file     ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  IMPROVEMENTS:                                              ║
-    ║  🔧 initTacticalDrawing() now called in init()             ║
-    ║  🔧 BFT emulation persists across view switches            ║
-    ║  🔧 Night Mode applied to Three.js scene                   ║
-    ║  🔧 Performance: labels optimized with instancing          ║
-    ║  🔧 Graceful degradation for missing libraries             ║
-    ╠══════════════════════════════════════════════════════════════╣
-    ║  HOTKEYS:                                                   ║
-    ║  1-4     : Switch views                                    ║
-    ║  Ctrl+1-5: Change tier                                     ║
-    ║  H       : Home / Reset camera                             ║
-    ║  M       : Toggle menu                                    ║
-    ║  F       : Fullscreen                                     ║
-    ║  P       : Presentation mode                              ║
-    ║  R       : Auto-rotate                                    ║
-    ║  T       : Auto-tour                                      ║
-    ║  G       : Geolocation                                    ║
-    ║  S       : Focus search                                   ║
-    ║  N       : Night mode                                     ║
-    ║  Escape  : Close all panels                               ║
-    ╚══════════════════════════════════════════════════════════════╝
-    `);
+    console.log('%c🎯 NATO, BFT, MGRS, LOS, Zone, DR, Pace, Offline — all active!', 'color:#ff4444;font-weight:bold;');
     </script>
 </body>
 </html>
