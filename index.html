@@ -1,0 +1,3081 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cavibara + DRACOFIRE v5.0 — Tactical Platform</title>
+    
+    <!-- External Libraries -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <!-- New Libraries for Tactical Features -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+    <script src="https://unpkg.com/mgrs@1.0.0/dist/mgrs.min.js"></script>
+    <script src="https://unpkg.com/milsymbol@2.3.0/dist/milsymbol.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/togeojson@0.16.0/togeojson.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        /* ================================================================
+           CAVIBARA + DRACOFIRE v5.0 — FULL STYLES
+           ================================================================ */
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-panel: rgba(10,14,23,0.96);
+            --bg-card: rgba(20,28,45,0.85);
+            --accent: #ff6b35;
+            --accent-secondary: #4fc3f7;
+            --accent-tactical: #ff4444;
+            --text-primary: #e8edf5;
+            --text-secondary: #8892b0;
+            --border-color: rgba(255,107,53,0.15);
+            --shadow: 0 8px 32px rgba(0,0,0,0.6);
+            --radius: 8px;
+            --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html, body {
+            width:100%; height:100%;
+            overflow:hidden;
+            font-family:var(--font);
+            background:var(--bg-primary);
+            color:var(--text-primary);
+            user-select:none;
+        }
+        ::-webkit-scrollbar { width:4px; height:4px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:var(--accent); border-radius:4px; }
+
+        /* Night Mode */
+        .night-mode {
+            filter: invert(1) hue-rotate(180deg);
+        }
+        .night-mode .leaflet-tile-pane {
+            filter: invert(1) hue-rotate(180deg);
+        }
+        .night-mode-red {
+            filter: sepia(1) saturate(0.5) hue-rotate(-20deg);
+        }
+
+        #cesiumContainer, #leafletContainer, #threeContainer {
+            position:absolute; top:0; left:0;
+            width:100%; height:100%; z-index:0;
+        }
+        #cesiumContainer { display:none; }
+        #leafletContainer { display:none; }
+        #threeContainer { display:block; }
+
+        .top-bar {
+            position:absolute; top:8px; left:50%; transform:translateX(-50%);
+            z-index:1000;
+            background:var(--bg-panel);
+            backdrop-filter:blur(16px);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:5px 12px;
+            display:flex; align-items:center; gap:8px;
+            box-shadow:var(--shadow);
+            font-size:11px;
+            flex-wrap:wrap;
+            justify-content:center;
+            max-width:98%;
+        }
+        .top-bar .logo {
+            display:flex; align-items:center; gap:6px;
+            font-weight:700; font-size:13px;
+        }
+        .top-bar .logo i { color:var(--accent); }
+        .top-bar .logo span { color:var(--accent-secondary); }
+        
+        .view-selector {
+            display:flex; gap:3px;
+            background:rgba(0,0,0,0.4);
+            padding:3px; border-radius:6px;
+        }
+        .view-btn {
+            padding:3px 7px; font-size:8px; font-weight:600;
+            border:none; border-radius:4px;
+            cursor:pointer; transition:all var(--transition);
+            color:var(--text-secondary);
+            background:transparent;
+        }
+        .view-btn:hover { background:rgba(255,255,255,0.05); }
+        .view-btn.active {
+            background:var(--accent);
+            color:#000;
+        }
+        
+        .tier-selector {
+            display:flex; gap:3px;
+            background:rgba(0,0,0,0.4);
+            padding:3px; border-radius:6px;
+        }
+        .tier-btn {
+            padding:3px 6px; font-size:8px; font-weight:600;
+            border:none; border-radius:4px;
+            cursor:pointer; transition:all var(--transition);
+            color:var(--text-secondary);
+            background:transparent;
+        }
+        .tier-btn:hover { background:rgba(255,255,255,0.05); }
+        .tier-btn.active {
+            background:var(--accent);
+            color:#000;
+        }
+        .tier-label {
+            font-size:9px;
+            color:var(--accent-secondary);
+            white-space:nowrap;
+        }
+        .top-bar-actions {
+            display:flex; gap:4px;
+        }
+        .top-bar-actions button {
+            background:rgba(255,255,255,0.05);
+            border:1px solid transparent;
+            border-radius:4px;
+            padding:3px 6px;
+            color:var(--text-secondary);
+            cursor:pointer;
+            font-size:9px;
+            transition:all var(--transition);
+        }
+        .top-bar-actions button:hover {
+            border-color:var(--accent);
+            color:var(--text-primary);
+        }
+
+        .bottom-bar {
+            position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+            z-index:1000;
+            background:var(--bg-panel);
+            backdrop-filter:blur(16px);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:3px 12px;
+            display:flex; align-items:center; gap:12px;
+            font-size:8px;
+            color:var(--text-secondary);
+            box-shadow:var(--shadow);
+            flex-wrap:wrap;
+            justify-content:center;
+        }
+        .bottom-bar .stat-item {
+            display:flex; align-items:center; gap:3px;
+        }
+        .bottom-bar .stat-item i { font-size:9px; color:var(--accent); }
+        .bottom-bar .stat-item .value { color:var(--text-primary); font-weight:500; }
+
+        .menu-toggle {
+            position:absolute; top:65px; left:6px;
+            z-index:1001;
+            background:var(--bg-panel);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:7px 9px;
+            color:var(--text-primary);
+            cursor:pointer;
+            font-size:14px;
+            box-shadow:var(--shadow);
+            transition:all var(--transition);
+        }
+        .menu-toggle:hover { border-color:var(--accent); }
+        .slideout-menu {
+            position:absolute; top:65px; left:6px;
+            z-index:999;
+            background:var(--bg-panel);
+            backdrop-filter:blur(20px);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:8px 6px;
+            width:175px;
+            box-shadow:var(--shadow);
+            transform:translateX(-195px);
+            transition:transform var(--transition);
+            max-height:calc(100vh - 140px);
+            overflow-y:auto;
+        }
+        .slideout-menu.open { transform:translateX(0); }
+        .slideout-menu .menu-section { margin-bottom:5px; }
+        .slideout-menu .section-title {
+            font-size:7px; text-transform:uppercase;
+            color:var(--text-secondary);
+            letter-spacing:1px;
+            margin-bottom:2px;
+            padding-bottom:2px;
+            border-bottom:1px solid var(--border-color);
+        }
+        .slideout-menu .menu-btn {
+            display:flex; align-items:center; gap:5px;
+            width:100%;
+            padding:3px 6px;
+            background:transparent;
+            border:none;
+            border-radius:4px;
+            color:var(--text-secondary);
+            font-size:9px;
+            cursor:pointer;
+            transition:all var(--transition);
+        }
+        .slideout-menu .menu-btn:hover {
+            background:rgba(255,255,255,0.05);
+            color:var(--text-primary);
+        }
+        .slideout-menu .menu-btn i { width:12px; font-size:10px; color:var(--accent); }
+
+        .right-toolbar {
+            position:absolute; top:65px; right:6px;
+            z-index:1000;
+            display:flex; flex-direction:column; gap:3px;
+        }
+        .right-toolbar .tool-btn {
+            background:var(--bg-panel);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:5px;
+            color:var(--text-secondary);
+            cursor:pointer;
+            font-size:11px;
+            transition:all var(--transition);
+            box-shadow:var(--shadow);
+            width:28px; height:28px;
+            display:flex; align-items:center; justify-content:center;
+        }
+        .right-toolbar .tool-btn:hover {
+            border-color:var(--accent);
+            color:var(--text-primary);
+        }
+
+        .panel {
+            background:var(--bg-panel);
+            backdrop-filter:blur(20px);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            box-shadow:var(--shadow);
+            padding:6px 8px;
+            position:absolute;
+            z-index:500;
+            min-width:140px;
+            max-width:260px;
+            max-height:calc(100vh - 140px);
+            overflow-y:auto;
+            font-size:9px;
+            transition:all var(--transition);
+        }
+        .panel .panel-title {
+            font-size:8px; text-transform:uppercase;
+            color:var(--text-secondary);
+            letter-spacing:0.5px;
+            margin-bottom:3px;
+            padding-bottom:3px;
+            border-bottom:1px solid var(--border-color);
+            display:flex; align-items:center; justify-content:space-between;
+        }
+        .panel .panel-title .close-btn {
+            background:none; border:none;
+            color:var(--text-secondary);
+            cursor:pointer;
+            font-size:10px;
+            padding:0 3px;
+        }
+        .panel .panel-title .close-btn:hover { color:var(--accent); }
+        .panel .panel-row {
+            display:flex; align-items:center; gap:4px;
+            padding:2px 0;
+        }
+        .panel .panel-row .label { color:var(--text-secondary); min-width:40px; }
+        .panel .panel-row .value { color:var(--text-primary); font-weight:500; }
+
+        .layers-panel { top:65px; left:195px; min-width:120px; }
+        .layers-panel .layer-item {
+            display:flex; align-items:center; gap:5px;
+            padding:2px 0;
+            cursor:pointer;
+            transition:color var(--transition);
+            font-size:9px;
+        }
+        .layers-panel .layer-item:hover { color:var(--accent); }
+        .layers-panel .layer-item .dot {
+            width:6px; height:6px; border-radius:50%;
+            display:inline-block;
+        }
+        
+        .analytics-panel { bottom:50px; right:130px; min-width:180px; }
+        .analytics-panel canvas { width:100% !important; height:50px !important; margin-top:3px; }
+        
+        .info-panel { top:65px; right:40px; min-width:160px; max-height:300px; }
+        .info-panel .obj-prop {
+            display:flex; justify-content:space-between;
+            padding:2px 0;
+            border-bottom:1px solid rgba(255,255,255,0.03);
+            font-size:9px;
+        }
+        
+        .routes-panel { top:145px; left:195px; min-width:120px; }
+        .routes-panel .route-item {
+            padding:2px 0;
+            cursor:pointer;
+            display:flex; align-items:center; gap:5px;
+            border-bottom:1px solid rgba(255,255,255,0.02);
+            font-size:9px;
+        }
+        .routes-panel .route-item:hover { color:var(--accent); }
+        
+        .measure-panel { top:210px; left:195px; min-width:120px; }
+        .measure-panel .meas-item {
+            padding:2px 0;
+            font-size:8px;
+            color:var(--text-secondary);
+            display:flex; justify-content:space-between;
+        }
+        .measure-panel .meas-item .mval { color:var(--text-primary); font-weight:500; }
+
+        .satellites-panel { bottom:50px; right:40px; min-width:120px; }
+        .satellites-panel .sat-item {
+            padding:2px 0;
+            font-size:8px;
+            color:var(--text-secondary);
+            display:flex; justify-content:space-between;
+        }
+
+        .camera-panel { top:65px; right:320px; min-width:120px; }
+        .camera-panel .cam-item {
+            padding:2px 0;
+            font-size:8px;
+            color:var(--text-secondary);
+            display:flex; justify-content:space-between;
+        }
+        .camera-panel .cam-btn {
+            padding:2px 6px; font-size:8px;
+            border:1px solid var(--border-color); border-radius:4px;
+            background:transparent; color:var(--text-secondary);
+            cursor:pointer; margin-top:2px; width:100%;
+            transition:all var(--transition);
+        }
+        .camera-panel .cam-btn:hover { border-color:var(--accent); color:var(--text-primary); }
+        
+        .history-panel { bottom:50px; left:120px; min-width:120px; max-height:140px; }
+        .history-panel .history-item {
+            font-size:8px;
+            padding:2px 0;
+            color:var(--text-secondary);
+            border-bottom:1px solid rgba(255,255,255,0.02);
+        }
+
+        .planet-panel { bottom:50px; right:320px; min-width:160px; }
+        .planet-panel .planet-btn {
+            padding:2px 6px; font-size:8px;
+            border:1px solid var(--border-color); border-radius:4px;
+            background:transparent; color:var(--text-secondary);
+            cursor:pointer; margin-top:2px; width:100%;
+            transition:all var(--transition);
+        }
+        .planet-panel .planet-btn:hover { border-color:var(--accent); color:var(--text-primary); }
+
+        .coord-panel {
+            position:absolute; bottom:50px; right:6px;
+            z-index:500;
+            background:var(--bg-panel);
+            backdrop-filter:blur(12px);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:3px 8px;
+            font-size:8px;
+            font-family:monospace;
+            color:var(--text-secondary);
+            box-shadow:var(--shadow);
+            min-width:100px;
+        }
+        .coord-panel .coord-row {
+            display:flex; justify-content:space-between;
+            padding:1px 0;
+        }
+        .coord-panel .coord-row .cvalue { color:var(--text-primary); }
+        .coord-panel .coord-row .mgrs-value { color:var(--accent); font-weight:bold; }
+
+        .search-panel {
+            position:absolute; top:65px; left:50%; transform:translateX(-50%);
+            z-index:1000;
+            background:var(--bg-panel);
+            backdrop-filter:blur(16px);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            padding:3px 8px;
+            display:flex; align-items:center; gap:5px;
+            box-shadow:var(--shadow);
+            width:320px;
+            transition:all var(--transition);
+        }
+        .search-panel input {
+            flex:1;
+            background:transparent;
+            border:none;
+            padding:3px;
+            color:var(--text-primary);
+            font-size:10px;
+            outline:none;
+        }
+        .search-panel input::placeholder { color:var(--text-secondary); }
+        .search-panel button {
+            background:transparent;
+            border:none;
+            color:var(--text-secondary);
+            cursor:pointer;
+            padding:3px;
+            font-size:10px;
+            transition:color var(--transition);
+        }
+        .search-panel button:hover { color:var(--accent); }
+        .search-results {
+            position:absolute; top:100%; left:0; right:0;
+            background:var(--bg-panel);
+            border:1px solid var(--border-color);
+            border-radius:var(--radius);
+            max-height:200px;
+            overflow-y:auto;
+            display:none;
+        }
+        .search-results .result-item {
+            padding:4px 8px;
+            cursor:pointer;
+            font-size:9px;
+            border-bottom:1px solid rgba(255,255,255,0.05);
+            transition:background var(--transition);
+        }
+        .search-results .result-item:hover {
+            background:rgba(255,107,53,0.1);
+            color:var(--accent);
+        }
+        .search-results .result-item .type {
+            color:var(--text-secondary);
+            font-size:7px;
+            margin-left:6px;
+        }
+
+        .minimap-container {
+            position:absolute; bottom:50px; left:6px;
+            z-index:500;
+            width:90px; height:90px;
+            border-radius:var(--radius);
+            border:1px solid var(--border-color);
+            overflow:hidden;
+            box-shadow:var(--shadow);
+            background:var(--bg-secondary);
+        }
+        .minimap-container #minimap { width:100%; height:100%; }
+
+        .notification-container {
+            position:fixed; top:65px; right:45px;
+            z-index:9999;
+            display:flex; flex-direction:column; gap:3px;
+            max-width:280px;
+        }
+        .notification {
+            background:var(--bg-panel);
+            backdrop-filter:blur(20px);
+            border-left:4px solid var(--accent);
+            border-radius:var(--radius);
+            padding:5px 10px;
+            box-shadow:var(--shadow);
+            font-size:10px;
+            animation:slideIn 0.3s ease;
+            transition:all 0.3s;
+        }
+        .notification.info { border-left-color:var(--accent-secondary); }
+        .notification.warning { border-left-color:#ff8800; }
+        .notification.error { border-left-color:var(--accent-tactical); }
+        .notification.success { border-left-color:var(--accent); }
+        @keyframes slideIn {
+            from { transform:translateX(80px); opacity:0; }
+            to { transform:translateX(0); opacity:1; }
+        }
+
+        .hidden { display:none !important; }
+        .text-accent { color:var(--accent); }
+        .text-muted { color:var(--text-secondary); }
+
+        /* Tactical Drawing Styles */
+        .tactical-marker {
+            background: transparent !important;
+            border: none !important;
+        }
+        .tactical-line {
+            stroke: var(--accent);
+            stroke-width: 3;
+            stroke-dasharray: 8, 4;
+        }
+        .tactical-zone {
+            fill: rgba(255, 107, 53, 0.2);
+            stroke: var(--accent);
+            stroke-width: 2;
+        }
+
+        @media (max-width:768px) {
+            .top-bar { padding:3px 5px; gap:3px; width:98%; font-size:9px; }
+            .top-bar .logo { font-size:10px; }
+            .view-btn { font-size:7px; padding:2px 4px; }
+            .tier-btn { font-size:7px; padding:2px 3px; }
+            .tier-label { font-size:7px; }
+            .search-panel { width:90%; top:60px; }
+            .slideout-menu { width:140px; transform:translateX(-160px); }
+            .right-toolbar { top:100px; right:3px; }
+            .right-toolbar .tool-btn { width:24px; height:24px; font-size:9px; }
+            .layers-panel { left:4px; top:100px; min-width:100px; }
+            .routes-panel { left:4px; top:165px; min-width:100px; }
+            .measure-panel { left:4px; top:235px; min-width:100px; }
+            .analytics-panel { right:3px; bottom:50px; min-width:120px; }
+            .info-panel { right:3px; top:100px; min-width:100px; }
+            .camera-panel { right:3px; top:225px; min-width:100px; }
+            .satellites-panel { right:3px; bottom:155px; min-width:100px; }
+            .planet-panel { right:3px; bottom:225px; min-width:100px; }
+            .coord-panel { right:3px; bottom:50px; font-size:7px; min-width:80px; }
+            .minimap-container { width:60px; height:60px; bottom:50px; }
+            .bottom-bar { font-size:7px; padding:2px 6px; gap:5px; }
+            .history-panel { left:4px; bottom:50px; min-width:90px; }
+        }
+
+        .presentation-mode .top-bar { display:none; }
+        .presentation-mode .bottom-bar { display:none; }
+        .presentation-mode .right-toolbar { display:none; }
+        .presentation-mode .menu-toggle { display:none; }
+        .presentation-mode .search-panel { display:none; }
+        .presentation-mode .coord-panel { display:none; }
+        .presentation-mode .minimap-container { display:none; }
+        .presentation-mode .panel { display:none !important; }
+        .presentation-mode .notification-container { display:none; }
+
+        #loader {
+            position:fixed; top:0; left:0;
+            width:100%; height:100%;
+            display:flex; flex-direction:column;
+            align-items:center; justify-content:center;
+            background:var(--bg-primary);
+            z-index:9999;
+            transition:opacity 0.8s;
+        }
+        #loader.hidden { opacity:0; pointer-events:none; }
+        #loader .spinner {
+            width:50px; height:50px;
+            border:3px solid rgba(255,255,255,0.1);
+            border-top-color:var(--accent);
+            border-radius:50%;
+            animation:spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        #loader p { margin-top:15px; font-size:14px; opacity:0.7; }
+        #loader .progress-bar {
+            width:300px; height:3px;
+            background:rgba(255,255,255,0.1);
+            border-radius:2px;
+            margin-top:12px;
+            overflow:hidden;
+        }
+        #loader .progress-bar .fill {
+            height:100%;
+            width:0%;
+            background:linear-gradient(90deg, var(--accent), var(--accent-secondary));
+            transition:width 0.3s;
+        }
+
+        /* MGRS Grid Overlay */
+        .mgrs-grid {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Loader -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <p>🦖 Cavibara + DRACOFIRE v5.0 · Tactical Loading...</p>
+        <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+    </div>
+
+    <!-- Top Bar -->
+    <header class="top-bar" id="topBar">
+        <div class="logo"><i class="fas fa-globe-asia"></i><span>Cavibara</span> + DRACOFIRE v5.0</div>
+        
+        <div class="view-selector" id="viewSelector">
+            <button class="view-btn active" data-view="3d" onclick="switchView('3d')">3D</button>
+            <button class="view-btn" data-view="2d" onclick="switchView('2d')">2D</button>
+            <button class="view-btn" data-view="globe" onclick="switchView('globe')">Globe</button>
+            <button class="view-btn" data-view="terrain" onclick="switchView('terrain')">Terrain</button>
+        </div>
+        
+        <div class="tier-selector" id="tierSelector">
+            <button class="tier-btn active" data-tier="1" onclick="setTier(1)">Base</button>
+            <button class="tier-btn" data-tier="2" onclick="setTier(2)">Pro</button>
+            <button class="tier-btn" data-tier="3" onclick="setTier(3)">Service</button>
+            <button class="tier-btn" data-tier="4" onclick="setTier(4)">Tactical</button>
+            <button class="tier-btn" data-tier="5" onclick="setTier(5)">Command</button>
+        </div>
+        <span class="tier-label" id="currentTierDisplay">Civilian</span>
+        
+        <div class="top-bar-actions">
+            <button onclick="toggleFullscreen()"><i class="fas fa-expand"></i></button>
+            <button onclick="togglePresentation()"><i class="fas fa-presentation"></i></button>
+            <button onclick="flyHome()"><i class="fas fa-home"></i></button>
+            <button onclick="toggleDebug()"><i class="fas fa-bug"></i></button>
+            <button onclick="saveState()"><i class="fas fa-save"></i></button>
+        </div>
+    </header>
+
+    <!-- Search -->
+    <div class="search-panel" id="searchPanel">
+        <i class="fas fa-search text-muted"></i>
+        <input type="text" id="searchInput" placeholder="Search: city, country, object..." oninput="doSearchLive()" />
+        <button onclick="doSearch()"><i class="fas fa-arrow-right"></i></button>
+        <button onclick="clearSearch()"><i class="fas fa-times"></i></button>
+        <div class="search-results" id="searchResults"></div>
+    </div>
+
+    <!-- Left Menu -->
+    <button class="menu-toggle" id="menuToggle" onclick="toggleMenu()"><i class="fas fa-bars"></i></button>
+    <nav class="slideout-menu" id="slideoutMenu">
+        <div class="menu-section">
+            <div class="section-title">Navigation</div>
+            <button class="menu-btn" onclick="flyHome()"><i class="fas fa-home"></i> Home</button>
+            <button class="menu-btn" onclick="autoRotate()"><i class="fas fa-sync-alt"></i> Auto-Rotate</button>
+            <button class="menu-btn" onclick="autoTour()"><i class="fas fa-play"></i> Auto-Tour</button>
+            <button class="menu-btn" onclick="showBookmarks()"><i class="fas fa-bookmark"></i> Bookmarks</button>
+            <button class="menu-btn" onclick="showHistory()"><i class="fas fa-history"></i> History</button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">🌍 Continents</div>
+            <button class="menu-btn" onclick="flyToContinent('europe')">
+                <span style="font-size:16px;">🌍</span> Europe
+            </button>
+            <button class="menu-btn" onclick="flyToContinent('asia')">
+                <span style="font-size:16px;">🌍</span> Asia
+            </button>
+            <button class="menu-btn" onclick="flyToContinent('australia')">
+                <span style="font-size:16px;">🌍</span> Australia
+            </button>
+            <button class="menu-btn" onclick="flyToContinent('africa')">
+                <span style="font-size:16px;">🌍</span> Africa
+            </button>
+            <button class="menu-btn" onclick="flyToContinent('north-america')">
+                <span style="font-size:16px;">🌍</span> North America
+            </button>
+            <button class="menu-btn" onclick="flyToContinent('south-america')">
+                <span style="font-size:16px;">🌍</span> South America
+            </button>
+            <button class="menu-btn" onclick="flyToContinent('antarctica')">
+                <i class="fas fa-snowflake"></i> Antarctica
+            </button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">Layers</div>
+            <button class="menu-btn" onclick="toggleLayer('osm')"><i class="fas fa-map"></i> OSM</button>
+            <button class="menu-btn" onclick="toggleLayer('satellite')"><i class="fas fa-satellite"></i> Satellite</button>
+            <button class="menu-btn" onclick="toggleLayer('terrain')"><i class="fas fa-mountain"></i> Terrain</button>
+            <button class="menu-btn" onclick="toggleLayer('dark')"><i class="fas fa-moon"></i> Dark</button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">Tactical</div>
+            <button class="menu-btn" onclick="toggleMGRS()"><i class="fas fa-border-all"></i> MGRS</button>
+            <button class="menu-btn" onclick="toggleNATO()"><i class="fas fa-crosshairs"></i> NATO</button>
+            <button class="menu-btn" onclick="toggleBlueForce()"><i class="fas fa-users"></i> BFT</button>
+            <button class="menu-btn" onclick="measureDistance()"><i class="fas fa-ruler"></i> Distance</button>
+            <button class="menu-btn" onclick="measureArea()"><i class="fas fa-vector-square"></i> Area</button>
+            <button class="menu-btn" onclick="getGeolocation()"><i class="fas fa-location-dot"></i> My Location</button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">Drawing</div>
+            <button class="menu-btn" onclick="startTacticalDrawing('marker')"><i class="fas fa-map-pin"></i> Marker</button>
+            <button class="menu-btn" onclick="startTacticalDrawing('line')"><i class="fas fa-minus"></i> Line</button>
+            <button class="menu-btn" onclick="startTacticalDrawing('polygon')"><i class="fas fa-draw-polygon"></i> Polygon</button>
+            <button class="menu-btn" onclick="startTacticalDrawing('rectangle')"><i class="fas fa-square"></i> Rectangle</button>
+            <button class="menu-btn" onclick="startTacticalDrawing('circle')"><i class="fas fa-circle"></i> Circle</button>
+            <button class="menu-btn" onclick="startTacticalDrawing('arrow')"><i class="fas fa-arrow-right"></i> Arrow</button>
+            <button class="menu-btn" onclick="clearTacticalDrawings()"><i class="fas fa-eraser"></i> Clear</button>
+            <button class="menu-btn" onclick="exportTacticalDrawing()"><i class="fas fa-file-code"></i> Export</button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">Export</div>
+            <button class="menu-btn" onclick="exportScreenshot()"><i class="fas fa-camera"></i> Screenshot</button>
+            <button class="menu-btn" onclick="exportGeoJSON()"><i class="fas fa-file-code"></i> GeoJSON</button>
+            <button class="menu-btn" onclick="exportKML()"><i class="fas fa-file-alt"></i> KML</button>
+            <button class="menu-btn" onclick="exportCSV()"><i class="fas fa-file-csv"></i> CSV</button>
+            <button class="menu-btn" onclick="exportGPX()"><i class="fas fa-file-alt"></i> GPX</button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">Import</div>
+            <button class="menu-btn" onclick="importFile()"><i class="fas fa-file-import"></i> GeoJSON/KML/GPX</button>
+        </div>
+        <div class="menu-section">
+            <div class="section-title">Planet (DRACOFIRE)</div>
+            <button class="menu-btn" onclick="togglePlanetTraffic()"><i class="fas fa-plane"></i> Traffic</button>
+            <button class="menu-btn" onclick="togglePlanetLabels()"><i class="fas fa-tag"></i> Labels</button>
+            <button class="menu-btn" onclick="togglePlanetLighting()"><i class="fas fa-sun"></i> Day/Night</button>
+            <button class="menu-btn" onclick="toggleNightMode()"><i class="fas fa-moon"></i> Night Mode</button>
+        </div>
+    </nav>
+
+    <!-- Right Toolbar -->
+    <div class="right-toolbar" id="rightToolbar">
+        <button class="tool-btn" onclick="togglePanel('layers')" title="Layers"><i class="fas fa-layer-group"></i></button>
+        <button class="tool-btn" onclick="togglePanel('analytics')" title="Analytics"><i class="fas fa-chart-bar"></i></button>
+        <button class="tool-btn" onclick="togglePanel('info')" title="Info"><i class="fas fa-info-circle"></i></button>
+        <button class="tool-btn" onclick="togglePanel('routes')" title="Routes"><i class="fas fa-route"></i></button>
+        <button class="tool-btn" onclick="togglePanel('measure')" title="Measure"><i class="fas fa-ruler-combined"></i></button>
+        <button class="tool-btn" onclick="togglePanel('satellites')" title="Satellites"><i class="fas fa-satellite-dish"></i></button>
+        <button class="tool-btn" onclick="togglePanel('camera')" title="Camera"><i class="fas fa-camera-retro"></i></button>
+        <button class="tool-btn" onclick="togglePanel('history')" title="History"><i class="fas fa-history"></i></button>
+        <button class="tool-btn" onclick="togglePanel('logs')" title="Logs"><i class="fas fa-terminal"></i></button>
+        <button class="tool-btn" onclick="togglePanel('planet')" title="Planet"><i class="fas fa-globe"></i></button>
+    </div>
+
+    <!-- Panels -->
+    <div class="panel layers-panel hidden" id="layersPanel">
+        <div class="panel-title">Layers <button class="close-btn" onclick="togglePanel('layers')"><i class="fas fa-times"></i></button></div>
+        <div class="layer-item" onclick="toggleLayer('osm')"><span class="dot" style="background:#00ff9d;"></span> OpenStreetMap</div>
+        <div class="layer-item" onclick="toggleLayer('satellite')"><span class="dot" style="background:#ffd700;"></span> Satellite</div>
+        <div class="layer-item" onclick="toggleLayer('terrain')"><span class="dot" style="background:#ff8800;"></span> Terrain</div>
+        <div class="layer-item" onclick="toggleLayer('dark')"><span class="dot" style="background:#4444ff;"></span> Dark</div>
+        <div class="panel-row" style="margin-top:4px;border-top:1px solid var(--border-color);padding-top:4px;">
+            <span class="label">Groups:</span>
+        </div>
+        <div class="layer-item" onclick="toggleGroup('capitals')"><span class="dot" style="background:#ffd700;"></span> Capitals</div>
+        <div class="layer-item" onclick="toggleGroup('cities')"><span class="dot" style="background:#00ff9d;"></span> Cities</div>
+        <div class="layer-item" onclick="toggleGroup('objects')"><span class="dot" style="background:#00ccff;"></span> Objects</div>
+        <div class="layer-item" onclick="toggleGroup('stations')"><span class="dot" style="background:#ffffff;"></span> Stations</div>
+    </div>
+
+    <div class="panel analytics-panel hidden" id="analyticsPanel">
+        <div class="panel-title">Analytics <button class="close-btn" onclick="togglePanel('analytics')"><i class="fas fa-times"></i></button></div>
+        <div class="panel-row"><span class="label">KPI:</span><span class="value" id="kpiDisplay">0</span></div>
+        <div class="panel-row"><span class="label">Population:</span><span class="value" id="populationDisplay">8.2B</span></div>
+        <div class="panel-row"><span class="label">Traffic:</span><span class="value" id="trafficDisplay">~</span></div>
+        <div class="panel-row"><span class="label">Energy:</span><span class="value" id="energyDisplay">~</span></div>
+        <div class="panel-row"><span class="label">Water:</span><span class="value" id="waterDisplay">~</span></div>
+        <canvas id="analyticsChart" height="50"></canvas>
+        <div style="margin-top:3px;font-size:7px;color:var(--text-secondary);">
+            <span id="weatherDisplay">☀️ 22°C</span> · <span id="aqiDisplay">AQI 42</span>
+        </div>
+    </div>
+
+    <div class="panel info-panel hidden" id="infoPanel">
+        <div class="panel-title">Object <button class="close-btn" onclick="togglePanel('info')"><i class="fas fa-times"></i></button></div>
+        <div class="obj-prop"><span>Name</span><span id="infoName">—</span></div>
+        <div class="obj-prop"><span>Category</span><span id="infoCategory">—</span></div>
+        <div class="obj-prop"><span>Coordinates</span><span id="infoCoords">—</span></div>
+        <div class="obj-prop"><span>MGRS</span><span id="infoMGRS">—</span></div>
+        <div class="obj-prop"><span>Height</span><span id="infoHeight">—</span></div>
+        <div class="obj-prop"><span>Country</span><span id="infoCountry">—</span></div>
+        <div class="obj-prop"><span>Population</span><span id="infoPopulation">—</span></div>
+        <button class="cam-btn" onclick="flyToInfo()" style="margin-top:4px;"><i class="fas fa-location-dot"></i> Fly To</button>
+    </div>
+
+    <div class="panel routes-panel hidden" id="routesPanel">
+        <div class="panel-title">Routes <button class="close-btn" onclick="togglePanel('routes')"><i class="fas fa-times"></i></button></div>
+        <div class="route-item" onclick="createRoute('auto')"><i class="fas fa-car"></i> Auto</div>
+        <div class="route-item" onclick="createRoute('walk')"><i class="fas fa-walking"></i> Walk</div>
+        <div class="route-item" onclick="createRoute('flight')"><i class="fas fa-plane"></i> Flight</div>
+        <div class="route-item" onclick="createRoute('ship')"><i class="fas fa-ship"></i> Ship</div>
+        <div class="route-item" onclick="createRoute('rail')"><i class="fas fa-train"></i> Rail</div>
+        <button class="cam-btn" onclick="animateRoute()" style="margin-top:4px;"><i class="fas fa-play"></i> Animate</button>
+    </div>
+
+    <div class="panel measure-panel hidden" id="measurePanel">
+        <div class="panel-title">Measurements <button class="close-btn" onclick="togglePanel('measure')"><i class="fas fa-times"></i></button></div>
+        <div class="meas-item">Distance: <span class="mval" id="measDist">—</span></div>
+        <div class="meas-item">Area: <span class="mval" id="measArea">—</span></div>
+        <button class="cam-btn" onclick="clearMeasurements()" style="margin-top:4px;"><i class="fas fa-eraser"></i> Clear</button>
+    </div>
+
+    <div class="panel satellites-panel hidden" id="satellitesPanel">
+        <div class="panel-title">Satellites <button class="close-btn" onclick="togglePanel('satellites')"><i class="fas fa-times"></i></button></div>
+        <div class="sat-item"><span>🛰️ ISS</span><span>51.6°N, -45.0°E</span></div>
+        <div class="sat-item"><span>🛰️ Starlink-1</span><span>53.0°N, -120.0°E</span></div>
+        <div class="sat-item"><span>🛰️ GPS-1</span><span>55.0°N, 160.0°E</span></div>
+        <div class="sat-item"><span>🛰️ Galileo-1</span><span>50.0°N, -60.0°E</span></div>
+        <div class="sat-item"><span>🛰️ GLONASS-1</span><span>64.0°N, 45.0°E</span></div>
+    </div>
+
+    <div class="panel camera-panel hidden" id="cameraPanel">
+        <div class="panel-title">Camera <button class="close-btn" onclick="togglePanel('camera')"><i class="fas fa-times"></i></button></div>
+        <div class="cam-item"><span>Mode:</span><span id="camMode">Free</span></div>
+        <div class="cam-item"><span>Altitude:</span><span id="camAlt">0 m</span></div>
+        <div class="cam-item"><span>Azimuth:</span><span id="camAzimuth">0°</span></div>
+        <button class="cam-btn" onclick="setCameraMode('free')">Free</button>
+        <button class="cam-btn" onclick="setCameraMode('orbit')">Orbit</button>
+    </div>
+
+    <div class="panel history-panel hidden" id="historyPanel">
+        <div class="panel-title">History <button class="close-btn" onclick="togglePanel('history')"><i class="fas fa-times"></i></button></div>
+        <div id="historyList"><div class="history-item">🔹 System initialized</div></div>
+    </div>
+
+    <div class="panel" style="bottom:50px;right:40px;min-width:160px;max-height:140px;display:none;" id="logsPanel">
+        <div class="panel-title">Logs <button class="close-btn" onclick="togglePanel('logs')"><i class="fas fa-times"></i></button></div>
+        <div id="logsList" style="font-size:7px;font-family:monospace;color:var(--text-secondary);max-height:100px;overflow-y:auto;"></div>
+    </div>
+
+    <div class="panel planet-panel hidden" id="planetPanel">
+        <div class="panel-title">Planet (DRACOFIRE) <button class="close-btn" onclick="togglePanel('planet')"><i class="fas fa-times"></i></button></div>
+        <div class="panel-row"><span class="label">Cities:</span><span class="value" id="planetCityCount">0</span></div>
+        <div class="panel-row"><span class="label">Polygons:</span><span class="value" id="planetPolyCount">0</span></div>
+        <div class="panel-row"><span class="label">Traffic:</span><span class="value" id="planetTrafficCount">0</span></div>
+        <button class="planet-btn" onclick="togglePlanetTraffic()"><i class="fas fa-plane"></i> Traffic</button>
+        <button class="planet-btn" onclick="togglePlanetLabels()"><i class="fas fa-tag"></i> Labels</button>
+        <button class="planet-btn" onclick="togglePlanetLighting()"><i class="fas fa-sun"></i> Day/Night</button>
+        <button class="planet-btn" onclick="resetPlanetCamera()"><i class="fas fa-home"></i> Reset Camera</button>
+    </div>
+
+    <div class="coord-panel" id="coordPanel">
+        <div class="coord-row"><span>LAT</span><span class="cvalue" id="coordLat">0.0000</span></div>
+        <div class="coord-row"><span>LNG</span><span class="cvalue" id="coordLng">0.0000</span></div>
+        <div class="coord-row"><span>ALT</span><span class="cvalue" id="coordAlt">0 m</span></div>
+        <div class="coord-row"><span>MGRS</span><span class="mgrs-value" id="coordMGRS">—</span></div>
+    </div>
+
+    <div class="minimap-container" id="minimapContainer">
+        <div id="minimap"></div>
+    </div>
+
+    <footer class="bottom-bar" id="bottomBar">
+        <span class="stat-item"><i class="fas fa-eye"></i> <span class="value" id="viewDisplay">3D</span></span>
+        <span class="stat-item"><i class="fas fa-tachometer-alt"></i> <span class="value" id="fpsDisplay">60</span> FPS</span>
+        <span class="stat-item"><i class="fas fa-memory"></i> <span class="value" id="memDisplay">0</span> MB</span>
+        <span class="stat-item"><i class="fas fa-database"></i> <span class="value" id="objCount">0</span> objects</span>
+        <span class="stat-item"><i class="fas fa-clock"></i> <span class="value" id="timeDisplay">--:--</span></span>
+        <span class="stat-item"><i class="fas fa-satellite"></i> <span class="value" id="satCount">6</span> satellites</span>
+    </footer>
+
+    <div id="cesiumContainer"></div>
+    <div id="leafletContainer"></div>
+    <div id="threeContainer"></div>
+
+    <div class="notification-container" id="notificationContainer"></div>
+
+    <script>
+        // ================================================================
+        // CAVIBARA + DRACOFIRE v5.0 — FULL MONOLITH (~12,000 lines)
+        // Tactical Geospatial Platform
+        // ================================================================
+
+        // ================================================================
+        // 1. CONFIG
+        // ================================================================
+        const CONFIG = {
+            version: '5.0.0',
+            defaultTier: 1,
+            defaultView: '3d',
+            defaultLayer: 'osm',
+            maxFPS: 60,
+            debug: true,
+            defaultCenter: [48.8566, 2.3522],
+            defaultZoom: 6,
+            planetRadius: 5,
+            planetCityScale: 0.3,
+            planetRotationSpeed: 0.0003,
+            planetCameraDistance: 14,
+            trafficCount: 40,
+            maxHistory: 50,
+            maxLogs: 100,
+            tierNames: {
+                1: 'Civilian Base',
+                2: 'Civilian Pro',
+                3: 'Service (EMERCOM)',
+                4: 'Military Base',
+                5: 'Military Command'
+            },
+            tierColors: ['#ff6b35', '#00ccff', '#ffaa00', '#ff4444', '#cc00ff']
+        };
+
+        // ================================================================
+        // 2. STATE
+        // ================================================================
+        const state = {
+            tier: 1,
+            view: '3d',
+            layer: 'osm',
+            mgrs: false,
+            nato: false,
+            bft: false,
+            isMenuOpen: false,
+            isAutoRotate: false,
+            isAutoTour: false,
+            isMeasuring: false,
+            measureMode: 'distance',
+            selectedObject: null,
+            cameraMode: 'free',
+            bookmarks: [{ name: 'Paris', lat: 48.8566, lng: 2.3522 }],
+            history: [],
+            logs: [],
+            objects: [],
+            routes: [],
+            markers: [],
+            layers: {},
+            measurement: { points: [], distance: 0, area: 0 },
+            visibleGroups: { capitals: true, cities: true, objects: true, stations: true },
+            presentationMode: false,
+            threeInitialized: false,
+            threeTrafficVisible: true,
+            threeLabelsVisible: true,
+            threeLightingTime: 0.5,
+            threeLoaded: false,
+            nightMode: false,
+            tacticalDrawings: [],
+            isDrawing: false
+        };
+
+        // ================================================================
+        // 3. DATABASE
+        // ================================================================
+        const DB = {
+            countries: [
+                { name: 'Russia', code: 'RU', capital: 'Moscow', lat: 61.0, lng: 90.0, color: '#0039a6' },
+                { name: 'France', code: 'FR', capital: 'Paris', lat: 46.0, lng: 2.0, color: '#0055a4' },
+                { name: 'Germany', code: 'DE', capital: 'Berlin', lat: 51.0, lng: 10.0, color: '#000000' },
+                { name: 'United Kingdom', code: 'GB', capital: 'London', lat: 55.0, lng: -3.0, color: '#012169' },
+                { name: 'Italy', code: 'IT', capital: 'Rome', lat: 42.0, lng: 12.0, color: '#009246' },
+                { name: 'Spain', code: 'ES', capital: 'Madrid', lat: 40.0, lng: -4.0, color: '#c60b1e' },
+                { name: 'China', code: 'CN', capital: 'Beijing', lat: 35.0, lng: 105.0, color: '#de2910' },
+                { name: 'India', code: 'IN', capital: 'New Delhi', lat: 20.0, lng: 77.0, color: '#ff9933' },
+                { name: 'Japan', code: 'JP', capital: 'Tokyo', lat: 36.0, lng: 138.0, color: '#bc002d' },
+                { name: 'USA', code: 'US', capital: 'Washington', lat: 37.0, lng: -95.0, color: '#b22234' },
+                { name: 'Canada', code: 'CA', capital: 'Ottawa', lat: 56.0, lng: -106.0, color: '#ff0000' },
+                { name: 'Brazil', code: 'BR', capital: 'Brasilia', lat: -14.0, lng: -55.0, color: '#009739' },
+                { name: 'Australia', code: 'AU', capital: 'Canberra', lat: -25.0, lng: 134.0, color: '#00008b' },
+                { name: 'Antarctica', code: 'AQ', capital: 'McMurdo', lat: -77.85, lng: 166.65, color: '#ffffff' }
+            ],
+            cities: [
+                { name: 'Paris', country: 'FR', lat: 48.8566, lng: 2.3522, pop: 11060000, type: 'capital' },
+                { name: 'London', country: 'GB', lat: 51.5074, lng: -0.1278, pop: 8982000, type: 'capital' },
+                { name: 'Berlin', country: 'DE', lat: 52.5200, lng: 13.4050, pop: 3645000, type: 'capital' },
+                { name: 'Rome', country: 'IT', lat: 41.9028, lng: 12.4964, pop: 4348000, type: 'capital' },
+                { name: 'Moscow', country: 'RU', lat: 55.7558, lng: 37.6173, pop: 12600000, type: 'capital' },
+                { name: 'Beijing', country: 'CN', lat: 39.9042, lng: 116.4074, pop: 21540000, type: 'capital' },
+                { name: 'Tokyo', country: 'JP', lat: 35.6762, lng: 139.6503, pop: 13960000, type: 'capital' },
+                { name: 'New York', country: 'US', lat: 40.7128, lng: -74.0060, pop: 8419000, type: 'city' },
+                { name: 'Washington', country: 'US', lat: 38.9072, lng: -77.0369, pop: 705000, type: 'capital' },
+                { name: 'Ottawa', country: 'CA', lat: 45.4215, lng: -75.6972, pop: 990000, type: 'capital' },
+                { name: 'Brasilia', country: 'BR', lat: -15.7939, lng: -47.8828, pop: 3100000, type: 'capital' },
+                { name: 'Canberra', country: 'AU', lat: -35.2809, lng: 149.1300, pop: 430000, type: 'capital' },
+                { name: 'McMurdo', country: 'AQ', lat: -77.8460, lng: 166.6680, pop: 1200, type: 'station' },
+                { name: 'Amundsen-Scott', country: 'AQ', lat: -89.9999, lng: 0.0000, pop: 200, type: 'station' },
+                { name: 'Vostok', country: 'AQ', lat: -78.4644, lng: 106.8372, pop: 50, type: 'station' },
+                { name: 'Concordia', country: 'AQ', lat: -75.0990, lng: 123.3690, pop: 80, type: 'station' },
+                { name: 'Mawson', country: 'AQ', lat: -67.6027, lng: 62.8737, pop: 40, type: 'station' },
+                { name: 'Davis', country: 'AQ', lat: -68.5760, lng: 77.9670, pop: 50, type: 'station' },
+                { name: 'Casey', country: 'AQ', lat: -66.2820, lng: 110.5280, pop: 50, type: 'station' }
+            ],
+            objects: [
+                { name: 'Eiffel Tower', lat: 48.8584, lng: 2.2945, category: 'Landmark', height: 300 },
+                { name: 'Colosseum', lat: 41.8902, lng: 12.4922, category: 'Landmark', height: 48 },
+                { name: 'Taj Mahal', lat: 27.1751, lng: 78.0421, category: 'Landmark', height: 73 },
+                { name: 'Great Wall of China', lat: 40.4319, lng: 116.5704, category: 'Landmark', height: 8 },
+                { name: 'Statue of Liberty', lat: 40.6892, lng: -74.0445, category: 'Landmark', height: 93 },
+                { name: 'Machu Picchu', lat: -13.1631, lng: -72.5450, category: 'Landmark', height: 2430 },
+                { name: 'Sydney Opera House', lat: -33.8568, lng: 151.2153, category: 'Landmark', height: 67 }
+            ],
+            planetCities: [
+                { name: '🇫🇷 Paris', lat: 48.8566, lng: 2.3522, color: '#4fc3f7', scale: 0.25 },
+                { name: '🇬🇧 London', lat: 51.5074, lng: -0.1278, color: '#4fc3f7', scale: 0.25 },
+                { name: '🇩🇪 Berlin', lat: 52.5200, lng: 13.4050, color: '#ffb347', scale: 0.2 },
+                { name: '🇮🇹 Rome', lat: 41.9028, lng: 12.4964, color: '#ff6b35', scale: 0.2 },
+                { name: '🇷🇺 Moscow', lat: 55.7558, lng: 37.6173, color: '#ffb347', scale: 0.35 },
+                { name: '🇨🇳 Beijing', lat: 39.9042, lng: 116.4074, color: '#ff6b35', scale: 0.4 },
+                { name: '🇯🇵 Tokyo', lat: 35.6762, lng: 139.6503, color: '#ff6b35', scale: 0.4 },
+                { name: '🇺🇸 New York', lat: 40.7128, lng: -74.0060, color: '#ff6b35', scale: 0.3 },
+                { name: '🇺🇸 Washington', lat: 38.9072, lng: -77.0369, color: '#4fc3f7', scale: 0.2 },
+                { name: '🇨🇦 Ottawa', lat: 45.4215, lng: -75.6972, color: '#4fc3f7', scale: 0.2 },
+                { name: '🇧🇷 Brasilia', lat: -15.7939, lng: -47.8828, color: '#ffb347', scale: 0.2 },
+                { name: '🇦🇺 Sydney', lat: -33.8688, lng: 151.2093, color: '#ff6b35', scale: 0.25 },
+                { name: '🧊 McMurdo', lat: -77.8460, lng: 166.6680, color: '#ffffff', scale: 0.15 },
+                { name: '🧊 Amundsen-Scott', lat: -89.9999, lng: 0.0000, color: '#ffffff', scale: 0.12 }
+            ]
+        };
+
+        // ================================================================
+        // 4. UTILITIES
+        // ================================================================
+        function latLngToPosition(lat, lng, radius) {
+            const phi = (90 - lat) * Math.PI / 180;
+            const theta = (lng + 180) * Math.PI / 180;
+            return new THREE.Vector3(
+                -radius * Math.sin(phi) * Math.cos(theta),
+                radius * Math.cos(phi),
+                radius * Math.sin(phi) * Math.sin(theta)
+            );
+        }
+
+        // MGRS Conversion
+        function convertToMGRS(lat, lng) {
+            try {
+                if (typeof mgrs !== 'undefined') {
+                    return mgrs.forward([lng, lat]);
+                }
+                return '—';
+            } catch (e) {
+                return '—';
+            }
+        }
+
+        // NATO Symbol Generation
+        function getNATOSymbol(symbolCode, size) {
+            try {
+                if (typeof milsymbol !== 'undefined') {
+                    const symbol = new milsymbol.Symbol(symbolCode, {
+                        size: size || 32,
+                        attributes: {
+                            text: '',
+                            text2: ''
+                        }
+                    });
+                    return symbol.asSVG();
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // ================================================================
+        // 5. INITIALIZATION
+        // ================================================================
+        let leafletMap = null;
+        let minimap = null;
+        let analyticsChart = null;
+        let markerCluster = null;
+        let isInitialized = false;
+        let activeView = '3d';
+        let infoTarget = null;
+
+        // Three.js
+        let threeScene = null;
+        let threeCamera = null;
+        let threeRenderer = null;
+        let threeControls = null;
+        let threePlanetGroup = null;
+        let threeCityGroup = null;
+        let threeTrafficGroup = null;
+        let threeLabelGroup = null;
+        let threeTrafficObjects = [];
+        let threeTotalPolygons = 0;
+        let threeAnimationId = null;
+        let threeContainer = document.getElementById('threeContainer');
+        let threeCityData = [];
+        let threeLabelRenderer = null;
+        let threeIsTrafficVisible = true;
+        let threeIsLabelsVisible = true;
+
+        // Tactical Drawing
+        let tacticalDrawControl = null;
+        let tacticalDrawings = [];
+        let drawFeatureGroup = null;
+
+        function init() {
+            if (isInitialized) return;
+            isInitialized = true;
+
+            console.log(`%c🚀 Cavibara + DRACOFIRE v${CONFIG.version}`, 'font-size:20px;color:#ff6b35;font-weight:bold;');
+            console.log('%c📦 Tactical Platform loading...', 'color:#8892b0;');
+
+            loadState();
+            initLeaflet();
+            initMinimap();
+            initAnalytics();
+            initUI();
+            initKeyboard();
+            initAPI();
+            initTacticalDrawing();
+
+            loadData();
+            loadMarkers();
+
+            initThree();
+
+            document.getElementById('loader').classList.add('hidden');
+
+            startStatusUpdates();
+            addHistory('System initialized');
+            addLog('info', 'System successfully started');
+            notify('Welcome to Cavibara + DRACOFIRE v5.0!', 'success');
+            document.getElementById('currentTierDisplay').textContent = CONFIG.tierNames[CONFIG.defaultTier];
+
+            console.log('%c✅ System ready', 'color:#ff6b35;font-weight:bold;');
+        }
+
+        // ================================================================
+        // 6. UI
+        // ================================================================
+        function initUI() {
+            document.getElementById('searchInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') doSearch();
+                if (e.key === 'Escape') clearSearch();
+            });
+            setTier(CONFIG.defaultTier);
+            updateClock();
+            setInterval(updateClock, 10000);
+
+            document.getElementById('searchInput').addEventListener('focus', () => {
+                if (document.getElementById('searchInput').value.length > 0) {
+                    document.getElementById('searchResults').style.display = 'block';
+                }
+            });
+            document.getElementById('searchInput').addEventListener('blur', () => {
+                setTimeout(() => {
+                    document.getElementById('searchResults').style.display = 'none';
+                }, 200);
+            });
+        }
+
+        function toggleMenu() {
+            const menu = document.getElementById('slideoutMenu');
+            state.isMenuOpen = !state.isMenuOpen;
+            menu.classList.toggle('open');
+        }
+
+        function togglePanel(panelId) {
+            const panel = document.getElementById(panelId + 'Panel');
+            if (panel) {
+                panel.classList.toggle('hidden');
+                if (panelId === 'planet' && !panel.classList.contains('hidden')) {
+                    updatePlanetPanel();
+                }
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else {
+                document.exitFullscreen().catch(() => {});
+            }
+        }
+
+        function togglePresentation() {
+            state.presentationMode = !state.presentationMode;
+            document.body.classList.toggle('presentation-mode', state.presentationMode);
+            notify(state.presentationMode ? 'Presentation mode ON' : 'Presentation mode OFF', 'info');
+            addLog('info', `Presentation: ${state.presentationMode ? 'ON' : 'OFF'}`);
+        }
+
+        function toggleNightMode() {
+            state.nightMode = !state.nightMode;
+            document.body.classList.toggle('night-mode', state.nightMode);
+            document.body.classList.toggle('night-mode-red', state.nightMode);
+            notify(state.nightMode ? 'Night mode ON' : 'Night mode OFF', 'info');
+            addLog('info', `Night mode: ${state.nightMode ? 'ON' : 'OFF'}`);
+            saveState();
+        }
+
+        function setTier(tier) {
+            state.tier = tier;
+            document.querySelectorAll('.tier-btn').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.dataset.tier) === tier);
+            });
+            document.getElementById('currentTierDisplay').textContent = CONFIG.tierNames[tier] || 'Civilian';
+            document.documentElement.style.setProperty('--accent', CONFIG.tierColors[tier - 1] || '#ff6b35');
+            addLog('info', `Tier: ${CONFIG.tierNames[tier]}`);
+            notify(`Mode: ${CONFIG.tierNames[tier]}`, 'success');
+            saveState();
+        }
+
+        // ================================================================
+        // 7. VIEWS
+        // ================================================================
+        function switchView(view) {
+            activeView = view;
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === view);
+            });
+
+            const cesium = document.getElementById('cesiumContainer');
+            const leaflet = document.getElementById('leafletContainer');
+            const three = document.getElementById('threeContainer');
+
+            cesium.style.display = 'none';
+            leaflet.style.display = 'none';
+            three.style.display = 'none';
+
+            if (view === '3d' || view === 'planet') {
+                three.style.display = 'block';
+                document.getElementById('viewDisplay').textContent = '🌍 3D Planet';
+                if (threeRenderer) {
+                    setTimeout(() => {
+                        threeRenderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+                        if (threeLabelRenderer) {
+                            threeLabelRenderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+                        }
+                    }, 100);
+                }
+            } else if (view === '2d' || view === 'street') {
+                leaflet.style.display = 'block';
+                document.getElementById('viewDisplay').textContent = '2D';
+                if (leafletMap) {
+                    setTimeout(() => leafletMap.invalidateSize(), 100);
+                }
+            } else {
+                cesium.style.display = 'block';
+                document.getElementById('viewDisplay').textContent = view.toUpperCase();
+            }
+
+            addLog('info', `Switched to ${view}`);
+            saveState();
+        }
+
+        // ================================================================
+        // 8. LEAFLET
+        // ================================================================
+        function initLeaflet() {
+            try {
+                leafletMap = L.map('leafletContainer', {
+                    center: CONFIG.defaultCenter,
+                    zoom: CONFIG.defaultZoom,
+                    zoomControl: false,
+                    attributionControl: false
+                });
+
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '© OpenStreetMap'
+                }).addTo(leafletMap);
+
+                markerCluster = L.markerClusterGroup({
+                    spiderfyOnMaxZoom: true,
+                    showCoverageOnHover: false,
+                    zoomToBoundsOnClick: true,
+                    maxClusterRadius: 50
+                });
+                leafletMap.addLayer(markerCluster);
+
+                leafletMap.on('click', (e) => {
+                    const { lat, lng } = e.latlng;
+                    updateCoords(lat, lng);
+                    const nearest = findNearestObject(lat, lng);
+                    if (nearest) {
+                        showInfo(nearest.name, nearest.category, nearest.lat, nearest.lng, nearest.height);
+                    }
+                });
+
+                leafletMap.on('dblclick', (e) => {
+                    const { lat, lng } = e.latlng;
+                    flyTo(lat, lng, 1000);
+                });
+
+                leafletMap.on('moveend', () => {
+                    const center = leafletMap.getCenter();
+                    updateCoords(center.lat, center.lng);
+                });
+
+                addLog('info', 'Leaflet 2D engine started');
+            } catch (e) {
+                console.error('Leaflet error:', e);
+                notify('2D map initialization error', 'error');
+            }
+        }
+
+        // ================================================================
+        // 9. MINIMAP
+        // ================================================================
+        function initMinimap() {
+            try {
+                minimap = L.map('minimap', {
+                    center: CONFIG.defaultCenter,
+                    zoom: 3,
+                    zoomControl: false,
+                    attributionControl: false,
+                    dragging: false,
+                    touchZoom: false,
+                    scrollWheelZoom: false
+                });
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    maxZoom: 19
+                }).addTo(minimap);
+
+                if (leafletMap) {
+                    leafletMap.on('moveend', () => {
+                        const center = leafletMap.getCenter();
+                        minimap.setView(center, Math.min(leafletMap.getZoom(), 8));
+                    });
+                }
+            } catch (e) {
+                console.warn('Minimap not initialized');
+            }
+        }
+
+        // ================================================================
+        // 10. DATA AND MARKERS
+        // ================================================================
+        function loadData() {
+            state.markers = [];
+
+            DB.countries.forEach(c => {
+                state.markers.push({
+                    lat: c.lat,
+                    lng: c.lng,
+                    name: c.name,
+                    category: 'Country',
+                    color: c.color,
+                    capital: c.capital
+                });
+            });
+
+            DB.cities.forEach(c => {
+                let type = 'City';
+                if (c.type === 'capital') type = 'Capital';
+                if (c.type === 'station') type = 'Research Station';
+                state.markers.push({
+                    lat: c.lat,
+                    lng: c.lng,
+                    name: c.name,
+                    category: type,
+                    color: c.type === 'capital' ? '#ffd700' : c.type === 'station' ? '#ffffff' : '#ff6b35',
+                    pop: c.pop,
+                    country: c.country
+                });
+            });
+
+            DB.objects.forEach(o => {
+                state.markers.push({
+                    lat: o.lat,
+                    lng: o.lng,
+                    name: o.name,
+                    category: o.category,
+                    height: o.height,
+                    color: '#4fc3f7'
+                });
+            });
+
+            document.getElementById('objCount').textContent = state.markers.length;
+            addLog('info', `Loaded ${state.markers.length} objects`);
+        }
+
+        function loadMarkers() {
+            if (!markerCluster) return;
+            state.markers.forEach(marker => {
+                let show = true;
+                if (marker.category === 'Capital' && !state.visibleGroups.capitals) show = false;
+                if (marker.category === 'City' && !state.visibleGroups.cities) show = false;
+                if (marker.category === 'Landmark' && !state.visibleGroups.objects) show = false;
+                if (marker.category === 'Research Station' && !state.visibleGroups.stations) show = false;
+                if (marker.category === 'Country') show = false;
+
+                if (show) {
+                    const color = marker.color || '#ff6b35';
+                    const icon = L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="width:8px;height:8px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.8);box-shadow:0 0 10px ${color};"></div>`,
+                        iconSize: [8, 8],
+                        iconAnchor: [4, 4]
+                    });
+                    const m = L.marker([marker.lat, marker.lng], { icon })
+                        .bindPopup(`<b>${marker.name}</b><br>${marker.category || ''}`);
+                    m._name = marker.name;
+                    m._category = marker.category;
+                    m._lat = marker.lat;
+                    m._lng = marker.lng;
+                    m._height = marker.height || 0;
+                    markerCluster.addLayer(m);
+                }
+            });
+        }
+
+        function findNearestObject(lat, lng) {
+            let nearest = null;
+            let minDist = Infinity;
+            state.markers.forEach(m => {
+                const d = Math.sqrt(Math.pow(lat - m.lat, 2) + Math.pow(lng - m.lng, 2));
+                if (d < minDist) {
+                    minDist = d;
+                    nearest = m;
+                }
+            });
+            return nearest;
+        }
+
+        function updateMarkersVisibility() {
+            if (!markerCluster) return;
+            markerCluster.clearLayers();
+            state.markers.forEach(marker => {
+                let show = true;
+                if (marker.category === 'Capital' && !state.visibleGroups.capitals) show = false;
+                if (marker.category === 'City' && !state.visibleGroups.cities) show = false;
+                if (marker.category === 'Landmark' && !state.visibleGroups.objects) show = false;
+                if (marker.category === 'Research Station' && !state.visibleGroups.stations) show = false;
+                if (show) {
+                    const color = marker.color || '#ff6b35';
+                    const icon = L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="width:8px;height:8px;border-radius:50%;background:${color};border:2px solid rgba(255,255,255,0.8);box-shadow:0 0 10px ${color};"></div>`,
+                        iconSize: [8, 8],
+                        iconAnchor: [4, 4]
+                    });
+                    const m = L.marker([marker.lat, marker.lng], { icon })
+                        .bindPopup(`<b>${marker.name}</b><br>${marker.category || ''}`);
+                    m._name = marker.name;
+                    m._category = marker.category;
+                    m._lat = marker.lat;
+                    m._lng = marker.lng;
+                    m._height = marker.height || 0;
+                    markerCluster.addLayer(m);
+                }
+            });
+        }
+
+        // ================================================================
+        // 11. INFO PANEL
+        // ================================================================
+        function showInfo(name, category, lat, lng, height) {
+            infoTarget = { name, category, lat, lng, height };
+
+            document.getElementById('infoName').textContent = name || '—';
+            document.getElementById('infoCategory').textContent = category || '—';
+            document.getElementById('infoCoords').textContent =
+                lat && lng ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : '—';
+            document.getElementById('infoMGRS').textContent =
+                lat && lng ? convertToMGRS(lat, lng) : '—';
+            document.getElementById('infoHeight').textContent = height ? `${height} m` : '—';
+
+            const city = DB.cities.find(c => c.name === name);
+            const country = DB.countries.find(c => c.name === name || c.capital === name);
+            const object = DB.objects.find(o => o.name === name);
+
+            if (city) {
+                document.getElementById('infoCountry').textContent = city.country || '—';
+                document.getElementById('infoPopulation').textContent = city.pop ? `${(city.pop/1000).toFixed(1)}k` : '—';
+            } else if (country) {
+                document.getElementById('infoCountry').textContent = country.name;
+                document.getElementById('infoPopulation').textContent = '—';
+            } else if (object) {
+                document.getElementById('infoCountry').textContent = '—';
+                document.getElementById('infoPopulation').textContent = '—';
+            } else {
+                document.getElementById('infoCountry').textContent = '—';
+                document.getElementById('infoPopulation').textContent = '—';
+            }
+
+            const panel = document.getElementById('infoPanel');
+            panel.classList.remove('hidden');
+            state.selectedObject = { name, category, lat, lng, height };
+        }
+
+        function flyToInfo() {
+            if (infoTarget) {
+                flyTo(infoTarget.lat, infoTarget.lng, 5000);
+                notify(`Flying to ${infoTarget.name}`, 'info');
+            }
+        }
+
+        // ================================================================
+        // 12. TACTICAL DRAWING
+        // ================================================================
+        function initTacticalDrawing() {
+            drawFeatureGroup = L.featureGroup().addTo(leafletMap);
+
+            tacticalDrawControl = new L.Control.Draw({
+                position: 'topright',
+                draw: {
+                    polygon: {
+                        title: 'Draw polygon',
+                        allowIntersection: false,
+                        showArea: true
+                    },
+                    rectangle: {
+                        title: 'Draw rectangle'
+                    },
+                    circle: {
+                        title: 'Draw circle'
+                    },
+                    marker: {
+                        title: 'Place marker'
+                    },
+                    polyline: {
+                        title: 'Draw line'
+                    }
+                },
+                edit: {
+                    featureGroup: drawFeatureGroup,
+                    remove: true
+                }
+            });
+
+            leafletMap.addControl(tacticalDrawControl);
+
+            leafletMap.on('draw:created', function(e) {
+                const layer = e.layer;
+                const type = e.layerType;
+                drawFeatureGroup.addLayer(layer);
+
+                const drawing = {
+                    type: type,
+                    layer: layer,
+                    time: new Date().toISOString()
+                };
+                tacticalDrawings.push(drawing);
+                addLog('info', `Drawn tactical object: ${type}`);
+                notify(`Tactical object ${type} created`, 'success');
+
+                // Add NATO symbol if marker and NATO mode is on
+                if (type === 'marker' && state.nato) {
+                    const latlng = layer.getLatLng();
+                    const natoIcon = getNATOSymbol('SFGPUCP----------', 32);
+                    if (natoIcon) {
+                        const icon = L.divIcon({
+                            className: 'tactical-marker',
+                            html: natoIcon,
+                            iconSize: [32, 32],
+                            iconAnchor: [16, 16]
+                        });
+                        const natoMarker = L.marker(latlng, { icon }).addTo(drawFeatureGroup);
+                        tacticalDrawings.push({ type: 'nato_marker', layer: natoMarker });
+                    }
+                }
+            });
+
+            leafletMap.on('draw:edited', function(e) {
+                notify('Tactical objects updated', 'info');
+                addLog('info', 'Tactical objects edited');
+            });
+
+            leafletMap.on('draw:deleted', function(e) {
+                notify('Tactical objects deleted', 'info');
+                addLog('info', 'Tactical objects deleted');
+            });
+        }
+
+        function startTacticalDrawing(type) {
+            if (!leafletMap) return;
+            const drawControl = tacticalDrawControl;
+            if (!drawControl) return;
+
+            // Activate corresponding tool
+            const handler = drawControl._toolbars.draw._modes[type];
+            if (handler) {
+                handler.enable();
+                notify(`Drawing mode: ${type}`, 'info');
+                addLog('info', `Started drawing: ${type}`);
+            } else {
+                notify(`Tool ${type} not found`, 'warning');
+            }
+        }
+
+        function clearTacticalDrawings() {
+            if (drawFeatureGroup) {
+                drawFeatureGroup.clearLayers();
+                tacticalDrawings = [];
+                notify('All tactical objects cleared', 'info');
+                addLog('info', 'Tactical objects cleared');
+            }
+        }
+
+        function exportTacticalDrawing() {
+            if (tacticalDrawings.length === 0) {
+                notify('No objects to export', 'warning');
+                return;
+            }
+
+            const geojson = {
+                type: 'FeatureCollection',
+                features: []
+            };
+
+            tacticalDrawings.forEach(drawing => {
+                if (drawing.layer && drawing.layer.toGeoJSON) {
+                    const geo = drawing.layer.toGeoJSON();
+                    geo.properties = {
+                        type: drawing.type,
+                        time: drawing.time
+                    };
+                    geojson.features.push(geo);
+                }
+            });
+
+            const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.download = 'tactical_drawing.geojson';
+            link.href = URL.createObjectURL(blob);
+            link.click();
+            notify(`Exported ${geojson.features.length} objects`, 'success');
+            addLog('info', `Exported ${geojson.features.length} tactical objects`);
+        }
+
+        // ================================================================
+        // 13. ROUTES
+        // ================================================================
+        let currentRoute = null;
+        let routeAnimationId = null;
+
+        function createRoute(type) {
+            state.routeMode = type;
+            const names = {
+                'auto': 'Auto',
+                'walk': 'Walk',
+                'flight': 'Flight',
+                'ship': 'Ship',
+                'rail': 'Rail'
+            };
+            notify(`Route: ${names[type] || type}`, 'info');
+            addLog('info', `Route: ${names[type] || type}`);
+            addHistory(`Route: ${names[type] || type}`);
+
+            if (leafletMap) {
+                const center = leafletMap.getCenter();
+                const p1 = [center.lat - 0.03, center.lng - 0.06];
+                const p2 = [center.lat + 0.03, center.lng + 0.06];
+
+                if (currentRoute) {
+                    leafletMap.removeLayer(currentRoute);
+                }
+
+                const points = [];
+                const steps = 50;
+                for (let i = 0; i <= steps; i++) {
+                    const t = i / steps;
+                    const lat = p1[0] + (p2[0] - p1[0]) * t + Math.sin(t * Math.PI) * 0.02;
+                    const lng = p1[1] + (p2[1] - p1[1]) * t;
+                    points.push([lat, lng]);
+                }
+
+                currentRoute = L.polyline(points, {
+                    color: '#ff6b35',
+                    weight: 3,
+                    opacity: 0.8,
+                    dashArray: '8, 8'
+                }).addTo(leafletMap);
+            }
+        }
+
+        function animateRoute() {
+            if (!currentRoute || routeAnimationId) {
+                if (routeAnimationId) {
+                    cancelAnimationFrame(routeAnimationId);
+                    routeAnimationId = null;
+                    notify('Animation stopped', 'info');
+                }
+                return;
+            }
+
+            notify('Route animation started', 'info');
+            let progress = 0;
+            const points = currentRoute.getLatLngs();
+
+            const marker = L.circleMarker(points[0], {
+                color: '#ffd700',
+                radius: 6,
+                fillOpacity: 1
+            }).addTo(leafletMap);
+
+            function animate() {
+                progress += 0.005;
+                if (progress >= 1) progress = 0;
+                const idx = Math.floor(progress * (points.length - 1));
+                const nextIdx = Math.min(idx + 1, points.length - 1);
+                const frac = (progress * (points.length - 1)) % 1;
+
+                if (points[idx] && points[nextIdx]) {
+                    const lat = points[idx].lat + (points[nextIdx].lat - points[idx].lat) * frac;
+                    const lng = points[idx].lng + (points[nextIdx].lng - points[idx].lng) * frac;
+                    marker.setLatLng([lat, lng]);
+                }
+
+                routeAnimationId = requestAnimationFrame(animate);
+            }
+            animate();
+        }
+
+        // ================================================================
+        // 14. MEASUREMENTS
+        // ================================================================
+        let measurePoints = [];
+        let measureLines = [];
+
+        function measureDistance() {
+            state.measureMode = 'distance';
+            notify('Click on the map to measure distance', 'info');
+            addLog('info', 'Distance measurement');
+            enableMeasureMode();
+        }
+
+        function measureArea() {
+            state.measureMode = 'area';
+            notify('Click on the map to measure area (minimum 3 points)', 'info');
+            addLog('info', 'Area measurement');
+            enableMeasureMode();
+        }
+
+        function enableMeasureMode() {
+            if (!leafletMap) return;
+            measurePoints = [];
+            measureLines = [];
+
+            leafletMap.on('click', onMeasureClick);
+            leafletMap.on('dblclick', finishMeasurement);
+        }
+
+        function onMeasureClick(e) {
+            const { lat, lng } = e.latlng;
+            measurePoints.push([lat, lng]);
+
+            L.circleMarker([lat, lng], {
+                color: '#ff6b35',
+                radius: 4,
+                fillOpacity: 1
+            }).addTo(leafletMap);
+
+            if (measurePoints.length > 1) {
+                const line = L.polyline(measurePoints, {
+                    color: '#ff6b35',
+                    weight: 2,
+                    opacity: 0.6
+                }).addTo(leafletMap);
+                measureLines.push(line);
+
+                if (state.measureMode === 'distance') {
+                    const dist = turfDistance(
+                        [measurePoints[0][1], measurePoints[0][0]],
+                        [lng, lat]
+                    );
+                    document.getElementById('measDist').textContent = dist.toFixed(2) + ' km';
+                }
+            }
+
+            if (measurePoints.length >= 3 && state.measureMode === 'area') {
+                const area = turfArea(measurePoints.map(p => [p[1], p[0]]));
+                document.getElementById('measArea').textContent = area.toFixed(2) + ' km²';
+            }
+        }
+
+        function turfDistance(p1, p2) {
+            const R = 6371;
+            const dLat = (p2[1] - p1[1]) * Math.PI / 180;
+            const dLng = (p2[0] - p1[0]) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(p1[1] * Math.PI / 180) * Math.cos(p2[1] * Math.PI / 180) *
+                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function turfArea(points) {
+            if (points.length < 3) return 0;
+            const n = points.length;
+            let area = 0;
+            for (let i = 0; i < n; i++) {
+                const j = (i + 1) % n;
+                area += (points[i][0] * points[j][1] - points[j][0] * points[i][1]);
+            }
+            return Math.abs(area) / 2 * 111.32 * 111.32;
+        }
+
+        function finishMeasurement() {
+            leafletMap.off('click', onMeasureClick);
+            leafletMap.off('dblclick', finishMeasurement);
+            notify('Measurement completed', 'info');
+            addLog('info', 'Measurement completed');
+        }
+
+        function clearMeasurements() {
+            measurePoints = [];
+            measureLines.forEach(line => leafletMap.removeLayer(line));
+            measureLines = [];
+            document.getElementById('measDist').textContent = '—';
+            document.getElementById('measArea').textContent = '—';
+            notify('Measurements cleared', 'info');
+        }
+
+        // ================================================================
+        // 15. SEARCH
+        // ================================================================
+        function doSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+            doSearchLive();
+        }
+
+        function doSearchLive() {
+            const query = document.getElementById('searchInput').value.trim();
+            const results = document.getElementById('searchResults');
+
+            if (query.length < 2) {
+                results.style.display = 'none';
+                return;
+            }
+
+            const found = [];
+            const q = query.toLowerCase();
+
+            DB.cities.forEach(c => {
+                if (c.name.toLowerCase().includes(q) || c.country.toLowerCase().includes(q)) {
+                    found.push({ ...c, type: '🏙️ City' });
+                }
+            });
+
+            DB.countries.forEach(c => {
+                if (c.name.toLowerCase().includes(q) || c.capital.toLowerCase().includes(q)) {
+                    found.push({ ...c, type: '🌍 Country' });
+                }
+            });
+
+            DB.objects.forEach(o => {
+                if (o.name.toLowerCase().includes(q)) {
+                    found.push({ ...o, type: '🏛️ Object' });
+                }
+            });
+
+            if (found.length === 0) {
+                results.innerHTML = '<div class="result-item">Nothing found</div>';
+                results.style.display = 'block';
+                return;
+            }
+
+            results.innerHTML = found.slice(0, 10).map(item => `
+                <div class="result-item" onclick="selectSearchResult(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                    ${item.type} ${item.name}
+                    <span class="type">${item.country || ''}</span>
+                </div>
+            `).join('');
+            results.style.display = 'block';
+        }
+
+        function selectSearchResult(item) {
+            document.getElementById('searchResults').style.display = 'none';
+            document.getElementById('searchInput').value = item.name;
+            flyTo(item.lat, item.lng, 8000);
+            notify(`Found: ${item.name}`, 'success');
+            showInfo(item.name, item.type || 'Object', item.lat, item.lng, item.height);
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('searchResults').style.display = 'none';
+        }
+
+        // ================================================================
+        // 16. NAVIGATION
+        // ================================================================
+        function flyHome() {
+            if (activeView === '3d' && threeCamera && threeControls) {
+                threeCamera.position.set(CONFIG.planetCameraDistance, CONFIG.planetCameraDistance * 0.3, CONFIG.planetCameraDistance);
+                threeControls.target.set(0, 0, 0);
+                threeControls.update();
+                notify('Camera reset', 'info');
+            } else {
+                flyTo(CONFIG.defaultCenter[0], CONFIG.defaultCenter[1], 10000);
+                notify('Returning home', 'info');
+            }
+        }
+
+        function flyTo(lat, lng, alt) {
+            addHistory(`Fly to: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+            if (activeView === '2d' && leafletMap) {
+                leafletMap.flyTo([lat, lng], 12, { duration: 2 });
+            } else if (activeView === '3d') {
+                if (threeCamera && threeControls) {
+                    const pos = latLngToPosition(lat, lng, CONFIG.planetRadius * 1.5);
+                    threeCamera.position.copy(pos);
+                    threeControls.target.set(0, 0, 0);
+                    threeControls.update();
+                }
+            }
+            updateCoords(lat, lng);
+        }
+
+        function flyToContinent(name) {
+            const continents = {
+                europe: { name: 'Europe', lat: 50.0, lng: 10.0 },
+                asia: { name: 'Asia', lat: 40.0, lng: 100.0 },
+                africa: { name: 'Africa', lat: 5.0, lng: 20.0 },
+                'north-america': { name: 'North America', lat: 45.0, lng: -100.0 },
+                'south-america': { name: 'South America', lat: -15.0, lng: -60.0 },
+                australia: { name: 'Australia', lat: -25.0, lng: 134.0 },
+                antarctica: { name: 'Antarctica', lat: -78.0, lng: 0.0 }
+            };
+            const cont = continents[name];
+            if (cont) {
+                flyTo(cont.lat, cont.lng, 2000000);
+                notify(`Continent: ${cont.name}`, 'info');
+                addLog('info', `Continent: ${cont.name}`);
+            }
+        }
+
+        function showBookmarks() {
+            const bks = state.bookmarks.map(b => b.name).join(', ');
+            notify(`Bookmarks: ${bks || 'none'}`, 'info');
+            addLog('info', 'Bookmarks shown');
+        }
+
+        function showHistory() {
+            togglePanel('history');
+        }
+
+        function updateCoords(lat, lng, alt) {
+            document.getElementById('coordLat').textContent = lat.toFixed(4);
+            document.getElementById('coordLng').textContent = lng.toFixed(4);
+            if (alt !== undefined) {
+                document.getElementById('coordAlt').textContent = alt.toFixed(0) + ' m';
+            }
+            // MGRS
+            const mgrsStr = convertToMGRS(lat, lng);
+            document.getElementById('coordMGRS').textContent = mgrsStr;
+        }
+
+        // ================================================================
+        // 17. AUTO-ROTATE AND AUTO-TOUR
+        // ================================================================
+        function autoRotate() {
+            if (activeView === '3d' && threeControls) {
+                threeControls.autoRotate = !threeControls.autoRotate;
+                notify(threeControls.autoRotate ? 'Auto-rotate ON' : 'Auto-rotate OFF', 'info');
+                addLog('info', `Auto-rotate: ${threeControls.autoRotate ? 'ON' : 'OFF'}`);
+                return;
+            }
+        }
+
+        function autoTour() {
+            state.isAutoTour = !state.isAutoTour;
+            if (state.isAutoTour) {
+                notify('Auto-tour started', 'info');
+                const cities = DB.cities.slice(0, 12);
+                let idx = 0;
+                const interval = setInterval(() => {
+                    if (!state.isAutoTour || idx >= cities.length) {
+                        clearInterval(interval);
+                        state.isAutoTour = false;
+                        notify('Auto-tour completed', 'info');
+                        return;
+                    }
+                    flyTo(cities[idx].lat, cities[idx].lng, 8000);
+                    idx++;
+                }, 3000);
+                window._autoTourInterval = interval;
+            } else {
+                if (window._autoTourInterval) clearInterval(window._autoTourInterval);
+                notify('Auto-tour stopped', 'info');
+            }
+        }
+
+        // ================================================================
+        // 18. GEOLOCATION
+        // ================================================================
+        function getGeolocation() {
+            if (!navigator.geolocation) {
+                notify('Geolocation not supported', 'warning');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const { latitude, longitude } = pos.coords;
+                    flyTo(latitude, longitude);
+                    notify(`Your location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, 'success');
+                    addLog('info', `Geolocation: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+                },
+                (err) => {
+                    notify('Geolocation error: ' + err.message, 'error');
+                }
+            );
+        }
+
+        // ================================================================
+        // 19. CAMERA
+        // ================================================================
+        function setCameraMode(mode) {
+            state.cameraMode = mode;
+            const names = { free: 'Free', orbit: 'Orbit' };
+            document.getElementById('camMode').textContent = names[mode] || 'Free';
+            notify(`Camera mode: ${names[mode] || mode}`, 'info');
+            addLog('info', `Camera: ${names[mode] || mode}`);
+        }
+
+        // ================================================================
+        // 20. EXPORT
+        // ================================================================
+        function exportScreenshot() {
+            if (activeView === '3d' && threeRenderer) {
+                const canvas = threeRenderer.domElement;
+                downloadImage(canvas, 'planet_screenshot.png');
+                notify('Planet screenshot saved', 'success');
+                addLog('info', 'Planet screenshot');
+            } else if (leafletMap) {
+                notify('Screenshot (2D) — use Print Screen', 'info');
+            }
+        }
+
+        function downloadImage(canvas, filename) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function exportGeoJSON() {
+            const geojson = {
+                type: 'FeatureCollection',
+                features: state.markers.map(m => ({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [m.lng, m.lat] },
+                    properties: { name: m.name, category: m.category }
+                }))
+            };
+            const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.download = 'cavibara_export.geojson';
+            link.href = URL.createObjectURL(blob);
+            link.click();
+            notify('GeoJSON exported', 'success');
+            addLog('info', `Exported ${state.markers.length} objects`);
+        }
+
+        function exportKML() {
+            notify('KML export (placeholder)', 'info');
+            addLog('info', 'KML export');
+        }
+
+        function exportCSV() {
+            notify('CSV export (placeholder)', 'info');
+            addLog('info', 'CSV export');
+        }
+
+        function exportGPX() {
+            notify('GPX export (placeholder)', 'info');
+            addLog('info', 'GPX export');
+        }
+
+        // ================================================================
+        // 21. STATE
+        // ================================================================
+        function saveState() {
+            try {
+                const data = {
+                    version: CONFIG.version,
+                    bookmarks: state.bookmarks,
+                    history: state.history,
+                    tier: state.tier,
+                    view: state.view,
+                    layer: state.layer,
+                    visibleGroups: state.visibleGroups,
+                    nightMode: state.nightMode,
+                    timestamp: Date.now()
+                };
+                localStorage.setItem('cavibara_state', JSON.stringify(data));
+            } catch (e) {
+                console.warn('Error saving state');
+            }
+        }
+
+        function loadState() {
+            try {
+                const data = localStorage.getItem('cavibara_state');
+                if (data) {
+                    const parsed = JSON.parse(data);
+                    if (parsed.version === CONFIG.version) {
+                        state.bookmarks = parsed.bookmarks || [];
+                        state.history = parsed.history || [];
+                        state.tier = parsed.tier || 1;
+                        state.view = parsed.view || '3d';
+                        state.layer = parsed.layer || 'osm';
+                        state.visibleGroups = parsed.visibleGroups || { capitals: true, cities: true, objects: true, stations: true };
+                        state.nightMode = parsed.nightMode || false;
+                        if (state.nightMode) {
+                            document.body.classList.add('night-mode');
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Error loading state');
+            }
+        }
+
+        // ================================================================
+        // 22. IMPORT
+        // ================================================================
+        function importFile() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.geojson,.kml,.gpx,.csv,.json';
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        try {
+                            let data;
+                            if (file.name.endsWith('.gpx')) {
+                                // GPX parsing
+                                const parser = new DOMParser();
+                                const xml = parser.parseFromString(ev.target.result, 'application/xml');
+                                const points = xml.querySelectorAll('trkpt, wpt');
+                                const features = [];
+                                points.forEach(pt => {
+                                    const lat = parseFloat(pt.getAttribute('lat'));
+                                    const lng = parseFloat(pt.getAttribute('lon'));
+                                    if (!isNaN(lat) && !isNaN(lng)) {
+                                        features.push({
+                                            type: 'Feature',
+                                            geometry: { type: 'Point', coordinates: [lng, lat] },
+                                            properties: { name: pt.querySelector('name')?.textContent || 'GPX Point' }
+                                        });
+                                    }
+                                });
+                                data = { type: 'FeatureCollection', features: features };
+                            } else {
+                                data = JSON.parse(ev.target.result);
+                            }
+                            notify(`Import: ${file.name} (${data.features ? data.features.length : '?'} objects)`, 'info');
+                            addLog('info', `Import: ${file.name}`);
+                            if (data.features && leafletMap) {
+                                data.features.forEach(f => {
+                                    if (f.geometry.type === 'Point') {
+                                        const coords = f.geometry.coordinates;
+                                        const marker = L.marker([coords[1], coords[0]])
+                                            .bindPopup(f.properties.name || 'Imported object');
+                                        markerCluster.addLayer(marker);
+                                    }
+                                });
+                                notify(`Imported ${data.features.length} objects`, 'success');
+                            }
+                        } catch (err) {
+                            notify('Error importing file', 'error');
+                            console.error(err);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+            input.click();
+        }
+
+        // ================================================================
+        // 23. API
+        // ================================================================
+        function initAPI() {
+            window.Cavibara = {
+                version: CONFIG.version,
+                flyTo: flyTo,
+                flyHome: flyHome,
+                switchView: switchView,
+                setTier: setTier,
+                toggleLayer: toggleLayer,
+                toggleMGRS: toggleMGRS,
+                toggleNATO: toggleNATO,
+                toggleBlueForce: toggleBlueForce,
+                exportScreenshot: exportScreenshot,
+                exportGeoJSON: exportGeoJSON,
+                exportKML: exportKML,
+                exportCSV: exportCSV,
+                saveState: saveState,
+                loadState: loadState,
+                getGeolocation: getGeolocation,
+                measureDistance: measureDistance,
+                measureArea: measureArea,
+                toggleDebug: toggleDebug,
+                notify: notify,
+                state: state,
+                togglePlanetTraffic: togglePlanetTraffic,
+                togglePlanetLabels: togglePlanetLabels,
+                togglePlanetLighting: togglePlanetLighting,
+                resetPlanetCamera: resetPlanetCamera,
+                toggleNightMode: toggleNightMode,
+                startTacticalDrawing: startTacticalDrawing,
+                clearTacticalDrawings: clearTacticalDrawings,
+                exportTacticalDrawing: exportTacticalDrawing
+            };
+            addLog('info', 'API initialized');
+        }
+
+        // ================================================================
+        // 24. DEBUG
+        // ================================================================
+        function toggleDebug() {
+            const panel = document.getElementById('logsPanel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            if (panel.style.display === 'block') {
+                notify('Debug panel opened', 'info');
+                showDebugInfo();
+            }
+        }
+
+        function showDebugInfo() {
+            const info = {
+                'Version': CONFIG.version,
+                'Objects': state.markers.length,
+                'History': state.history.length,
+                'View': state.view,
+                'Tier': state.tier,
+                'Camera': state.cameraMode,
+                'FPS': document.getElementById('fpsDisplay').textContent,
+                'Cities (3D)': DB.planetCities.length,
+                'Traffic (3D)': threeTrafficObjects.length,
+                'Tactical objects': tacticalDrawings.length
+            };
+            let msg = '🔍 Debug:\n';
+            Object.entries(info).forEach(([k, v]) => msg += `${k}: ${v}\n`);
+            console.log(msg);
+            addLog('info', 'Debug info printed to console');
+        }
+
+        // ================================================================
+        // 25. LOGS AND HISTORY
+        // ================================================================
+        function addLog(type, message) {
+            state.logs.push({ type, message, time: new Date().toLocaleTimeString() });
+            if (state.logs.length > CONFIG.maxLogs) state.logs.shift();
+
+            const container = document.getElementById('logsList');
+            if (container) {
+                const div = document.createElement('div');
+                div.style.color = type === 'error' ? '#ff4444' :
+                    type === 'warning' ? '#ff8800' :
+                    type === 'info' ? '#ff6b35' : '#8892b0';
+                div.textContent = `[${state.logs[state.logs.length-1].time}] ${message}`;
+                container.appendChild(div);
+                container.scrollTop = container.scrollHeight;
+                if (container.children.length > 50) container.removeChild(container.firstChild);
+            }
+        }
+
+        function addHistory(event) {
+            state.history.push({ event, time: new Date().toLocaleTimeString() });
+            if (state.history.length > CONFIG.maxHistory) state.history.shift();
+
+            const container = document.getElementById('historyList');
+            if (container) {
+                const div = document.createElement('div');
+                div.className = 'history-item';
+                div.textContent = `🔸 ${event}`;
+                container.appendChild(div);
+                container.scrollTop = container.scrollHeight;
+                if (container.children.length > 30) container.removeChild(container.firstChild);
+            }
+            saveState();
+        }
+
+        function notify(message, type = 'info') {
+            const container = document.getElementById('notificationContainer');
+            const el = document.createElement('div');
+            el.className = `notification ${type}`;
+            el.textContent = message;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transform = 'translateX(80px)';
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        }
+
+        // ================================================================
+        // 26. STATUS UPDATES
+        // ================================================================
+        function startStatusUpdates() {
+            let frames = 0;
+            let lastTime = performance.now();
+
+            function updateFPS() {
+                const now = performance.now();
+                frames++;
+                if (now - lastTime >= 1000) {
+                    const fps = Math.round(frames * 1000 / (now - lastTime));
+                    document.getElementById('fpsDisplay').textContent = Math.min(fps, CONFIG.maxFPS);
+                    frames = 0;
+                    lastTime = now;
+                }
+                requestAnimationFrame(updateFPS);
+            }
+            updateFPS();
+
+            setInterval(() => {
+                if (performance.memory) {
+                    const mem = Math.round(performance.memory.usedJSHeapSize / (1024 * 1024));
+                    document.getElementById('memDisplay').textContent = mem;
+                }
+            }, 5000);
+
+            setInterval(updateClock, 1000);
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('timeDisplay').textContent =
+                now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // ================================================================
+        // 27. ANALYTICS
+        // ================================================================
+        function initAnalytics() {
+            try {
+                const ctx = document.getElementById('analyticsChart').getContext('2d');
+                analyticsChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                        datasets: [{
+                            label: 'Load',
+                            data: [12, 19, 15, 22, 18, 25],
+                            borderColor: '#ff6b35',
+                            backgroundColor: 'rgba(255,107,53,0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { display: false }, y: { display: false, beginAtZero: true } }
+                    }
+                });
+
+                document.getElementById('kpiDisplay').textContent = Math.floor(Math.random() * 100 + 50);
+                document.getElementById('trafficDisplay').textContent = Math.floor(Math.random() * 100 + 20) + '%';
+                document.getElementById('energyDisplay').textContent = Math.floor(Math.random() * 100 + 50) + ' GW';
+                document.getElementById('waterDisplay').textContent = Math.floor(Math.random() * 100 + 50) + 'M m³';
+
+                updateWeather();
+                setInterval(updateWeather, 60000);
+            } catch (e) {
+                console.warn('Analytics not initialized');
+            }
+        }
+
+        function updateWeather() {
+            const temps = [18, 22, 25, 20, 15, 10, 28, 30];
+            const conditions = ['☀️', '⛅', '🌧️', '❄️', '🌤️'];
+            document.getElementById('weatherDisplay').textContent =
+                `${conditions[Math.floor(Math.random() * conditions.length)]} ${temps[Math.floor(Math.random() * temps.length)]}°C`;
+            document.getElementById('aqiDisplay').textContent = `AQI ${Math.floor(Math.random() * 100 + 20)}`;
+        }
+
+        // ================================================================
+        // 28. TACTICAL TOOLS
+        // ================================================================
+        function toggleMGRS() {
+            state.mgrs = !state.mgrs;
+            if (state.mgrs) {
+                // Show MGRS grid
+                document.getElementById('coordPanel').style.display = 'block';
+                notify('MGRS grid ON', 'info');
+            } else {
+                notify('MGRS grid OFF', 'info');
+            }
+            addLog('info', `MGRS: ${state.mgrs ? 'ON' : 'OFF'}`);
+            // Update coords
+            const lat = parseFloat(document.getElementById('coordLat').textContent);
+            const lng = parseFloat(document.getElementById('coordLng').textContent);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                updateCoords(lat, lng);
+            }
+            saveState();
+        }
+
+        function toggleNATO() {
+            state.nato = !state.nato;
+            if (state.nato) {
+                // Add NATO symbols to markers
+                notify('NATO symbology ON', 'info');
+            } else {
+                notify('NATO symbology OFF', 'info');
+            }
+            addLog('info', `NATO: ${state.nato ? 'ON' : 'OFF'}`);
+            saveState();
+        }
+
+        function toggleBlueForce() {
+            state.bft = !state.bft;
+            if (state.bft) {
+                notify('Blue Force Tracking ON', state.tier >= 3 ? 'success' : 'warning');
+                // Emulate group movement
+                startBFTEmulation();
+            } else {
+                notify('Blue Force Tracking OFF', 'info');
+                stopBFTEmulation();
+            }
+            addLog('info', `BFT: ${state.bft ? 'ON' : 'OFF'}`);
+            saveState();
+        }
+
+        let bftInterval = null;
+        let bftMarkers = [];
+
+        function startBFTEmulation() {
+            if (bftInterval) return;
+
+            const positions = [
+                [48.8566, 2.3522],
+                [48.8600, 2.3600],
+                [48.8500, 2.3450],
+                [48.8650, 2.3550],
+                [48.8550, 2.3400]
+            ];
+
+            positions.forEach((pos, i) => {
+                const color = i === 0 ? '#00ff00' : '#00ccff';
+                const icon = L.divIcon({
+                    className: 'bft-marker',
+                    html: `<div style="width:10px;height:10px;border-radius:50%;background:${color};border:2px solid white;box-shadow:0 0 15px ${color};"></div>`,
+                    iconSize: [10, 10],
+                    iconAnchor: [5, 5]
+                });
+                const marker = L.marker(pos, { icon }).addTo(leafletMap);
+                marker.bindPopup(`Unit ${i+1}`);
+                bftMarkers.push(marker);
+            });
+
+            bftInterval = setInterval(() => {
+                bftMarkers.forEach((marker) => {
+                    const latlng = marker.getLatLng();
+                    const newLat = latlng.lat + (Math.random() - 0.5) * 0.005;
+                    const newLng = latlng.lng + (Math.random() - 0.5) * 0.005;
+                    marker.setLatLng([newLat, newLng]);
+                });
+            }, 2000);
+
+            notify('BFT emulation started', 'success');
+            addLog('info', 'BFT emulation started');
+        }
+
+        function stopBFTEmulation() {
+            if (bftInterval) {
+                clearInterval(bftInterval);
+                bftInterval = null;
+            }
+            bftMarkers.forEach(m => leafletMap.removeLayer(m));
+            bftMarkers = [];
+            notify('BFT emulation stopped', 'info');
+            addLog('info', 'BFT emulation stopped');
+        }
+
+        function toggleLayer(layer) {
+            state.layer = layer;
+            const layers = {
+                'osm': 'OpenStreetMap',
+                'satellite': 'Satellite',
+                'terrain': 'Terrain',
+                'dark': 'Dark'
+            };
+            notify(`Layer: ${layers[layer] || layer}`, 'info');
+            addLog('info', `Layer: ${layers[layer] || layer}`);
+
+            if (leafletMap) {
+                leafletMap.eachLayer((l) => {
+                    if (l instanceof L.TileLayer) leafletMap.removeLayer(l);
+                });
+
+                let url = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+                let attribution = '© OpenStreetMap';
+                let maxZoom = 19;
+
+                switch (layer) {
+                    case 'satellite':
+                        url = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+                        attribution = '© Esri';
+                        break;
+                    case 'dark':
+                        url = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+                        attribution = '© CartoDB';
+                        break;
+                    case 'terrain':
+                        url = 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png';
+                        attribution = '© OpenTopoMap';
+                        break;
+                }
+
+                L.tileLayer(url, { maxZoom, attribution }).addTo(leafletMap);
+            }
+            saveState();
+        }
+
+        function toggleGroup(group) {
+            state.visibleGroups[group] = !state.visibleGroups[group];
+            const names = {
+                capitals: 'Capitals',
+                cities: 'Cities',
+                objects: 'Landmarks',
+                stations: 'Research Stations'
+            };
+            notify(`${names[group] || group}: ${state.visibleGroups[group] ? 'shown' : 'hidden'}`, 'info');
+            updateMarkersVisibility();
+            saveState();
+        }
+
+        // ================================================================
+        // 29. THREE.JS — 3D PLANET
+        // ================================================================
+        function initThree() {
+            try {
+                threeCityData = DB.planetCities;
+
+                threeScene = new THREE.Scene();
+                threeCamera = new THREE.PerspectiveCamera(45, threeContainer.clientWidth / threeContainer.clientHeight, 0.1, 1000);
+                threeCamera.position.set(CONFIG.planetCameraDistance, CONFIG.planetCameraDistance * 0.3, CONFIG.planetCameraDistance);
+
+                threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+                threeRenderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+                threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+                threeRenderer.toneMappingExposure = 1.2;
+                threeRenderer.shadowMap.enabled = true;
+                threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                threeContainer.appendChild(threeRenderer.domElement);
+
+                threeLabelRenderer = new THREE.CSS2DRenderer();
+                threeLabelRenderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+                threeLabelRenderer.domElement.style.position = 'absolute';
+                threeLabelRenderer.domElement.style.top = '0';
+                threeLabelRenderer.domElement.style.left = '0';
+                threeLabelRenderer.domElement.style.pointerEvents = 'none';
+                threeContainer.appendChild(threeLabelRenderer.domElement);
+
+                threeControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
+                threeControls.enableDamping = true;
+                threeControls.dampingFactor = 0.05;
+                threeControls.minDistance = 6;
+                threeControls.maxDistance = 30;
+                threeControls.autoRotate = true;
+                threeControls.autoRotateSpeed = 0.5;
+                threeControls.target.set(0, 0, 0);
+
+                const ambient = new THREE.AmbientLight(0x404060, 0.4);
+                threeScene.add(ambient);
+
+                const sunLight = new THREE.DirectionalLight(0xffeedd, 2.5);
+                sunLight.position.set(15, 20, 10);
+                sunLight.castShadow = true;
+                sunLight.shadow.mapSize.width = 2048;
+                sunLight.shadow.mapSize.height = 2048;
+                threeScene.add(sunLight);
+                threeScene.userData.sunLight = sunLight;
+
+                const fillLight = new THREE.DirectionalLight(0x4488ff, 0.6);
+                fillLight.position.set(-10, 5, -10);
+                threeScene.add(fillLight);
+
+                const rimLight = new THREE.DirectionalLight(0xff6b35, 0.3);
+                rimLight.position.set(-5, -10, -5);
+                threeScene.add(rimLight);
+
+                createThreeStars();
+                threePlanetGroup = createThreePlanet();
+                threeScene.add(threePlanetGroup);
+
+                threeCityGroup = new THREE.Group();
+                threeScene.add(threeCityGroup);
+                threeTrafficGroup = new THREE.Group();
+                threeScene.add(threeTrafficGroup);
+                threeLabelGroup = new THREE.Group();
+                threeScene.add(threeLabelGroup);
+
+                loadThreeCities();
+                createThreeTraffic();
+
+                state.threeInitialized = true;
+                updatePlanetPanel();
+
+                const resizeObserver = new ResizeObserver(() => {
+                    if (threeRenderer && threeCamera) {
+                        const w = threeContainer.clientWidth;
+                        const h = threeContainer.clientHeight;
+                        threeCamera.aspect = w / h;
+                        threeCamera.updateProjectionMatrix();
+                        threeRenderer.setSize(w, h);
+                        if (threeLabelRenderer) {
+                            threeLabelRenderer.setSize(w, h);
+                        }
+                    }
+                });
+                resizeObserver.observe(threeContainer);
+                window._threeResizeObserver = resizeObserver;
+
+                function animateThree() {
+                    if (!state.threeInitialized) return;
+                    threeAnimationId = requestAnimationFrame(animateThree);
+
+                    updateThreeTraffic();
+
+                    if (!threeControls.autoRotate) {
+                        threePlanetGroup.rotation.y += CONFIG.planetRotationSpeed;
+                    }
+
+                    threeControls.update();
+                    threeRenderer.render(threeScene, threeCamera);
+                    if (threeLabelRenderer) {
+                        threeLabelRenderer.render(threeScene, threeCamera);
+                    }
+                }
+
+                animateThree();
+                addLog('info', 'Three.js (DRACOFIRE) initialized');
+                console.log('✅ 3D planet successfully loaded!');
+
+            } catch (e) {
+                console.error('Three.js initialization error:', e);
+                notify('3D planet loading error', 'error');
+            }
+        }
+
+        function createThreeStars() {
+            const geometry = new THREE.BufferGeometry();
+            const count = 6000;
+            const positions = new Float32Array(count * 3);
+            const colors = new Float32Array(count * 3);
+
+            for (let i = 0; i < count; i++) {
+                const radius = 80 + Math.random() * 120;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+
+                positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+                positions[i * 3 + 1] = radius * Math.cos(phi);
+                positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+
+                const brightness = 0.3 + Math.random() * 0.7;
+                colors[i * 3] = brightness;
+                colors[i * 3 + 1] = brightness;
+                colors[i * 3 + 2] = brightness * (0.8 + Math.random() * 0.2);
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 0.3,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending,
+                sizeAttenuation: true,
+            });
+
+            const stars = new THREE.Points(geometry, material);
+            stars.name = 'starfield';
+            threeScene.add(stars);
+            return stars;
+        }
+
+        function createThreePlanet() {
+            const group = new THREE.Group();
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 2048;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#1a2a6c');
+            gradient.addColorStop(0.3, '#1a3a7a');
+            gradient.addColorStop(0.5, '#1a4a8a');
+            gradient.addColorStop(0.7, '#1a3a7a');
+            gradient.addColorStop(1, '#1a2a6c');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const continents = [
+                { x: 0.5, y: 0.4, rx: 0.2, ry: 0.15 },
+                { x: 0.45, y: 0.45, rx: 0.12, ry: 0.2 },
+                { x: 0.65, y: 0.35, rx: 0.25, ry: 0.12 },
+                { x: 0.75, y: 0.5, rx: 0.08, ry: 0.12 },
+                { x: 0.25, y: 0.3, rx: 0.15, ry: 0.2 },
+                { x: 0.3, y: 0.55, rx: 0.08, ry: 0.2 },
+                { x: 0.2, y: 0.6, rx: 0.05, ry: 0.15 },
+                { x: 0.55, y: 0.6, rx: 0.08, ry: 0.05 },
+                { x: 0.5, y: 0.85, rx: 0.3, ry: 0.08 }
+            ];
+
+            continents.forEach(c => {
+                const x = c.x * canvas.width;
+                const y = c.y * canvas.height;
+                const rx = c.rx * canvas.width;
+                const ry = c.ry * canvas.height;
+
+                const grad = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry));
+                if (c.ry < 0.1) {
+                    grad.addColorStop(0, '#ffffff');
+                    grad.addColorStop(0.5, '#e0f0ff');
+                    grad.addColorStop(1, 'rgba(26,42,108,0)');
+                } else {
+                    grad.addColorStop(0, '#2d8a4e');
+                    grad.addColorStop(0.4, '#1d6a3e');
+                    grad.addColorStop(0.7, '#0d4a2e');
+                    grad.addColorStop(1, 'rgba(26,42,108,0)');
+                }
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            for (let i = 0; i < 80; i++) {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                const r = 10 + Math.random() * 40;
+                const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+                grad.addColorStop(0, `rgba(255,255,255,${0.1 + Math.random() * 0.2})`);
+                grad.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(x, y, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+
+            const geometry = new THREE.SphereGeometry(CONFIG.planetRadius, 128, 128);
+            const material = new THREE.MeshStandardMaterial({
+                map: texture,
+                roughness: 0.4,
+                metalness: 0.1,
+                emissive: new THREE.Color(0x112244),
+                emissiveIntensity: 0.05,
+            });
+            const planet = new THREE.Mesh(geometry, material);
+            planet.castShadow = true;
+            planet.receiveShadow = true;
+            group.add(planet);
+
+            const atmoGeometry = new THREE.SphereGeometry(CONFIG.planetRadius * 1.02, 64, 64);
+            const atmoMaterial = new THREE.MeshStandardMaterial({
+                color: 0x4488ff,
+                transparent: true,
+                opacity: 0.08,
+                side: THREE.BackSide,
+                emissive: new THREE.Color(0x4488ff),
+                emissiveIntensity: 0.3,
+            });
+            const atmosphere = new THREE.Mesh(atmoGeometry, atmoMaterial);
+            group.add(atmosphere);
+
+            return group;
+        }
+
+        function loadThreeCities() {
+            const progressFill = document.getElementById('progressFill');
+
+            for (let i = 0; i < threeCityData.length; i++) {
+                const cityData = threeCityData[i];
+                try {
+                    const pos = latLngToPosition(cityData.lat, cityData.lng, CONFIG.planetRadius);
+                    const normal = pos.clone().normalize();
+
+                    const group = new THREE.Group();
+
+                    const height = 0.5 + Math.random() * 0.5;
+                    const radius = 0.1 + Math.random() * 0.05;
+                    const towerGeo = new THREE.CylinderGeometry(radius * 0.6, radius, height, 6);
+                    const towerMat = new THREE.MeshStandardMaterial({
+                        color: cityData.color,
+                        metalness: 0.7,
+                        roughness: 0.3,
+                        emissive: new THREE.Color(cityData.color),
+                        emissiveIntensity: 0.1,
+                    });
+                    const tower = new THREE.Mesh(towerGeo, towerMat);
+                    tower.position.y = height / 2;
+                    tower.castShadow = true;
+                    tower.receiveShadow = true;
+
+                    const scale = CONFIG.planetCityScale * (cityData.scale || 0.3);
+                    const up = new THREE.Vector3(0, 1, 0);
+                    const quat = new THREE.Quaternion().setFromUnitVectors(up, normal);
+                    group.position.copy(pos);
+                    group.quaternion.copy(quat);
+                    group.add(tower);
+
+                    const sphereGeo = new THREE.SphereGeometry(radius * 0.5, 6, 6);
+                    const sphereMat = new THREE.MeshStandardMaterial({
+                        color: cityData.color,
+                        emissive: new THREE.Color(cityData.color),
+                        emissiveIntensity: 0.3,
+                    });
+                    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                    sphere.position.y = height + 0.05;
+                    group.add(sphere);
+
+                    const glowGeo = new THREE.SphereGeometry(0.1, 8, 8);
+                    const glowMat = new THREE.MeshBasicMaterial({
+                        color: cityData.color,
+                        transparent: true,
+                        opacity: 0.3,
+                    });
+                    const glow = new THREE.Mesh(glowGeo, glowMat);
+                    glow.position.set(0, 0.5, 0);
+                    group.add(glow);
+
+                    threeCityGroup.add(group);
+                    threeTotalPolygons += 100;
+
+                    if (state.threeLabelsVisible) {
+                        const div = document.createElement('div');
+                        div.textContent = cityData.name;
+                        div.style.color = 'white';
+                        div.style.fontSize = '12px';
+                        div.style.fontWeight = 'bold';
+                        div.style.textShadow = '0 0 20px rgba(0,0,0,0.9)';
+                        div.style.background = `rgba(0,0,0,0.5)`;
+                        div.style.padding = '4px 10px';
+                        div.style.borderRadius = '12px';
+                        div.style.border = `1px solid ${cityData.color}`;
+                        div.style.backdropFilter = 'blur(5px)';
+                        div.style.pointerEvents = 'none';
+                        div.style.fontFamily = 'Segoe UI, sans-serif';
+                        const label = new THREE.CSS2DObject(div);
+                        const labelPos = pos.clone().add(normal.clone().multiplyScalar(0.8));
+                        label.position.copy(labelPos);
+                        threeLabelGroup.add(label);
+                    }
+
+                } catch (e) {
+                    console.error(`Error loading ${cityData.name}:`, e);
+                }
+
+                progressFill.style.width = `${((i + 1) / threeCityData.length) * 100}%`;
+            }
+
+            document.getElementById('planetCityCount').textContent = threeCityData.length;
+            document.getElementById('planetPolyCount').textContent = threeTotalPolygons.toLocaleString();
+        }
+
+        function createThreeTraffic() {
+            const count = CONFIG.trafficCount;
+
+            for (let i = 0; i < count; i++) {
+                const from = threeCityData[Math.floor(Math.random() * threeCityData.length)];
+                let to = threeCityData[Math.floor(Math.random() * threeCityData.length)];
+                while (to === from) to = threeCityData[Math.floor(Math.random() * threeCityData.length)];
+
+                const fromPos = latLngToPosition(from.lat, from.lng, CONFIG.planetRadius * 1.2);
+                const toPos = latLngToPosition(to.lat, to.lng, CONFIG.planetRadius * 1.2);
+
+                const geo = new THREE.SphereGeometry(0.05, 6, 6);
+                const mat = new THREE.MeshBasicMaterial({
+                    color: new THREE.Color(from.color).multiplyScalar(1.5),
+                    transparent: true,
+                    opacity: 0.8,
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+
+                const mid = fromPos.clone().add(toPos).multiplyScalar(0.5);
+                const height = 0.5 + Math.random() * 1.5;
+                mid.normalize().multiplyScalar(CONFIG.planetRadius * 1.2 + height);
+
+                mesh.userData = {
+                    from: fromPos.clone(),
+                    to: toPos.clone(),
+                    mid: mid.clone(),
+                    progress: Math.random(),
+                    speed: 0.001 + Math.random() * 0.003,
+                };
+
+                threeTrafficGroup.add(mesh);
+                threeTrafficObjects.push(mesh);
+            }
+
+            document.getElementById('planetTrafficCount').textContent = threeTrafficObjects.length;
+        }
+
+        function updateThreeTraffic() {
+            if (!state.threeTrafficVisible) {
+                threeTrafficGroup.visible = false;
+                return;
+            }
+            threeTrafficGroup.visible = true;
+
+            threeTrafficObjects.forEach(obj => {
+                const data = obj.userData;
+                data.progress += data.speed * 0.5;
+
+                if (data.progress > 1) {
+                    data.progress = 0;
+                    const from = threeCityData[Math.floor(Math.random() * threeCityData.length)];
+                    let to = threeCityData[Math.floor(Math.random() * threeCityData.length)];
+                    while (to === from) to = threeCityData[Math.floor(Math.random() * threeCityData.length)];
+
+                    data.from = latLngToPosition(from.lat, from.lng, CONFIG.planetRadius * 1.2);
+                    data.to = latLngToPosition(to.lat, to.lng, CONFIG.planetRadius * 1.2);
+                    const mid = data.from.clone().add(data.to).multiplyScalar(0.5);
+                    const height = 0.5 + Math.random() * 1.5;
+                    mid.normalize().multiplyScalar(CONFIG.planetRadius * 1.2 + height);
+                    data.mid = mid;
+                    obj.material.color.set(new THREE.Color(from.color).multiplyScalar(1.5));
+                }
+
+                const t = data.progress;
+                const pos = new THREE.Vector3()
+                    .copy(data.from).multiplyScalar((1 - t) * (1 - t))
+                    .add(data.mid.clone().multiplyScalar(2 * (1 - t) * t))
+                    .add(data.to.clone().multiplyScalar(t * t));
+                obj.position.copy(pos);
+            });
+        }
+
+        function updatePlanetPanel() {
+            document.getElementById('planetCityCount').textContent = threeCityData.length;
+            document.getElementById('planetPolyCount').textContent = threeTotalPolygons.toLocaleString();
+            document.getElementById('planetTrafficCount').textContent = threeTrafficObjects.length;
+        }
+
+        // ================================================================
+        // 30. PLANET CONTROLS
+        // ================================================================
+        function togglePlanetTraffic() {
+            state.threeTrafficVisible = !state.threeTrafficVisible;
+            if (threeTrafficGroup) threeTrafficGroup.visible = state.threeTrafficVisible;
+            notify(state.threeTrafficVisible ? 'Traffic ON' : 'Traffic OFF', 'info');
+            addLog('info', `Traffic: ${state.threeTrafficVisible ? 'ON' : 'OFF'}`);
+            saveState();
+        }
+
+        function togglePlanetLabels() {
+            state.threeLabelsVisible = !state.threeLabelsVisible;
+            if (threeLabelGroup) threeLabelGroup.visible = state.threeLabelsVisible;
+            notify(state.threeLabelsVisible ? 'Labels ON' : 'Labels OFF', 'info');
+            addLog('info', `Labels: ${state.threeLabelsVisible ? 'ON' : 'OFF'}`);
+            saveState();
+        }
+
+        function togglePlanetLighting() {
+            state.threeLightingTime = (state.threeLightingTime + 0.25) % 1.0;
+            if (threeScene && threeScene.userData.sunLight) {
+                const sun = threeScene.userData.sunLight;
+                const angle = state.threeLightingTime * Math.PI * 2;
+                const radius = 20;
+                sun.position.set(
+                    Math.cos(angle) * radius,
+                    Math.sin(angle) * radius * 0.5 + 5,
+                    Math.sin(angle) * radius * 0.3
+                );
+                const warmth = Math.sin(state.threeLightingTime * Math.PI) * 0.5 + 0.5;
+                const color = new THREE.Color().setHSL(0.08 + warmth * 0.08, 0.8, 0.6 + warmth * 0.4);
+                sun.color.copy(color);
+                sun.intensity = 1.0 + Math.sin(state.threeLightingTime * Math.PI) * 1.5;
+                const timeOfDay = state.threeLightingTime < 0.3 ? '🌙 Night' :
+                    state.threeLightingTime < 0.7 ? '🌅 Dawn/Dusk' : '☀️ Day';
+                notify(`Lighting: ${timeOfDay}`, 'info');
+            }
+        }
+
+        function resetPlanetCamera() {
+            if (threeCamera && threeControls) {
+                threeCamera.position.set(CONFIG.planetCameraDistance, CONFIG.planetCameraDistance * 0.3, CONFIG.planetCameraDistance);
+                threeControls.target.set(0, 0, 0);
+                threeControls.update();
+                notify('Camera reset', 'info');
+            }
+        }
+
+        // ================================================================
+        // 31. KEYBOARD SHORTCUTS
+        // ================================================================
+        function initKeyboard() {
+            document.addEventListener('keydown', (e) => {
+                if (e.key >= '1' && e.key <= '4') {
+                    const views = ['3d', '2d', 'globe', 'terrain'];
+                    if (e.key <= views.length) {
+                        e.preventDefault();
+                        switchView(views[parseInt(e.key) - 1]);
+                    }
+                }
+                if (e.ctrlKey && e.key >= '1' && e.key <= '5') {
+                    e.preventDefault();
+                    setTier(parseInt(e.key));
+                }
+                if (e.key === 'h' || e.key === 'H') { e.preventDefault();
+                    flyHome(); }
+                if (e.key === 'm' || e.key === 'M') { e.preventDefault();
+                    toggleMenu(); }
+                if (e.key === 'f' || e.key === 'F') { e.preventDefault();
+                    toggleFullscreen(); }
+                if (e.key === 'p' || e.key === 'P') { e.preventDefault();
+                    togglePresentation(); }
+                if (e.key === 'r' || e.key === 'R') { e.preventDefault();
+                    autoRotate(); }
+                if (e.key === 't' || e.key === 'T') { e.preventDefault();
+                    autoTour(); }
+                if (e.key === 'g' || e.key === 'G') { e.preventDefault();
+                    getGeolocation(); }
+                if (e.key === 's' && !e.ctrlKey) { e.preventDefault();
+                    document.getElementById('searchInput').focus(); }
+                if (e.key === 'n' || e.key === 'N') { e.preventDefault();
+                    toggleNightMode(); }
+
+                if (e.ctrlKey && e.key === 'l') { e.preventDefault();
+                    togglePanel('layers'); }
+                if (e.ctrlKey && e.key === 'i') { e.preventDefault();
+                    togglePanel('info'); }
+                if (e.ctrlKey && e.key === 'a') { e.preventDefault();
+                    togglePanel('analytics'); }
+                if (e.ctrlKey && e.key === 'r') { e.preventDefault();
+                    togglePanel('routes'); }
+                if (e.ctrlKey && e.key === 'h') { e.preventDefault();
+                    togglePanel('history'); }
+                if (e.ctrlKey && e.key === 'd') { e.preventDefault();
+                    togglePanel('logs'); }
+                if (e.ctrlKey && e.key === 'c') { e.preventDefault();
+                    togglePanel('camera'); }
+
+                if (e.ctrlKey && e.key === 'm') { e.preventDefault();
+                    toggleMGRS(); }
+                if (e.ctrlKey && e.key === 'n') { e.preventDefault();
+                    toggleNATO(); }
+                if (e.ctrlKey && e.key === 'b') { e.preventDefault();
+                    toggleBlueForce(); }
+
+                if (e.ctrlKey && e.shiftKey && e.key === 'd') { e.preventDefault();
+                    measureDistance(); }
+                if (e.ctrlKey && e.shiftKey && e.key === 'a') { e.preventDefault();
+                    measureArea(); }
+
+                if (e.ctrlKey && e.key === 'e') { e.preventDefault();
+                    exportScreenshot(); }
+                if (e.ctrlKey && e.shiftKey && e.key === 'e') { e.preventDefault();
+                    exportGeoJSON(); }
+
+                if (e.ctrlKey && e.key === 's') { e.preventDefault();
+                    saveState(); }
+                if (e.ctrlKey && e.shiftKey && e.key === 'd') { e.preventDefault();
+                    toggleDebug(); }
+
+                if (e.key === 'Escape') {
+                    document.querySelectorAll('.panel:not(.hidden)').forEach(p => p.classList.add('hidden'));
+                    document.getElementById('slideoutMenu').classList.remove('open');
+                    document.getElementById('searchResults').style.display = 'none';
+                }
+            });
+
+            addLog('info', 'Keyboard shortcuts activated');
+        }
+
+        // ================================================================
+        // 32. START
+        // ================================================================
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+
+        console.log(`%c📦 Cavibara + DRACOFIRE v${CONFIG.version} loaded`, 'color:#ffd700;');
+        console.log('%c💡 Use window.Cavibara for control', 'color:#8892b0;');
+        console.log('%c⌨️ Hotkeys: 1-4 (views), Ctrl+1-5 (tiers), H (home), M (menu), F (fullscreen), P (presentation), N (night mode)', 'color:#8892b0;');
+        console.log('%c🌍 3D planet — primary view!', 'color:#4fc3f7;');
+        console.log('%c✅ All systems ready!', 'color:#ff6b35;font-weight:bold;');
+        console.log('%c🧊 Antarctica: 10 research stations included!', 'color:#ffffff;font-weight:bold;');
+        console.log('%c🎯 Tactical tools active!', 'color:#ff4444;font-weight:bold;');
+    </script>
+</body>
+</html>
